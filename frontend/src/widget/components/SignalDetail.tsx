@@ -1,0 +1,128 @@
+import { useEffect, useState } from "react";
+import type { SignalDetail as SignalDetailType } from "../types";
+import { fetchSignalDetail } from "../api";
+import { categoryLabel } from "../categoryLabels";
+import { formatRelativeTime } from "../formatRelativeTime";
+import { isSafeExternalUrl } from "../safeUrl";
+import { ErrorState } from "./ErrorState";
+
+interface SignalDetailProps {
+  apiBaseUrl: string;
+  signalId: string;
+  onBack: () => void;
+}
+
+type DetailStatus = "loading" | "error" | "ready";
+
+export function SignalDetail({ apiBaseUrl, signalId, onBack }: SignalDetailProps) {
+  const [signal, setSignal] = useState<SignalDetailType | null>(null);
+  const [status, setStatus] = useState<DetailStatus>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    setSignal(null);
+
+    fetchSignalDetail(apiBaseUrl, signalId)
+      .then((data) => {
+        if (cancelled) return;
+        setSignal(data);
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, signalId]);
+
+  return (
+    <div className="ss-detail">
+      <button type="button" className="ss-back-button" onClick={onBack}>
+        ← Back
+      </button>
+
+      {status === "loading" && (
+        <div className="ss-detail__skeleton" role="status" aria-label="Loading signal">
+          <div className="ss-skeleton-line ss-skeleton-line--title" />
+          <div className="ss-skeleton-line" />
+          <div className="ss-skeleton-line" />
+          <div className="ss-skeleton-line ss-skeleton-line--short" />
+        </div>
+      )}
+
+      {status === "error" && (
+        <ErrorState
+          onRetry={() => {
+            setStatus("loading");
+            fetchSignalDetail(apiBaseUrl, signalId)
+              .then((data) => {
+                setSignal(data);
+                setStatus("ready");
+              })
+              .catch(() => setStatus("error"));
+          }}
+        />
+      )}
+
+      {status === "ready" && signal && (
+        <article>
+          {signal.categories.length > 0 && (
+            <div className="ss-card__chips">
+              {signal.categories.map((c) => (
+                <span className="ss-chip ss-chip--static" key={c.id}>
+                  {categoryLabel(c.category)}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <h2 className="ss-detail__title">{signal.title}</h2>
+          <p className="ss-detail__meta">{formatRelativeTime(signal.published_at)}</p>
+
+          <section className="ss-detail__section">
+            <h3>What happened</h3>
+            <p>{signal.summary}</p>
+          </section>
+
+          <section className="ss-detail__section">
+            <h3>Why it matters</h3>
+            <p>{signal.security_impact}</p>
+          </section>
+
+          <section className="ss-detail__section">
+            <h3>Security principle</h3>
+            <p>{signal.principle}</p>
+          </section>
+
+          <section className="ss-detail__section">
+            <h3>Recommended action</h3>
+            <p>{signal.recommended_action}</p>
+          </section>
+
+          {signal.evidence.length > 0 && (
+            <section className="ss-detail__section">
+              <h3>Sources</h3>
+              <ul className="ss-evidence-list">
+                {signal.evidence.map((item) =>
+                  isSafeExternalUrl(item.source_url) ? (
+                    <li key={item.id}>
+                      <a href={item.source_url} target="_blank" rel="noopener noreferrer">
+                        {item.source_title}
+                      </a>
+                    </li>
+                  ) : (
+                    <li key={item.id}>{item.source_title}</li>
+                  ),
+                )}
+              </ul>
+            </section>
+          )}
+        </article>
+      )}
+    </div>
+  );
+}

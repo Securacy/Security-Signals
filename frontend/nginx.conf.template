@@ -1,0 +1,33 @@
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    index index.html;
+
+    # Proxy API requests to backend
+    location /api/ {
+        proxy_pass http://backend:8000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # SPA routing: fallback to index.html.
+    #
+    # frame-ancestors is set here (not in an HTML <meta> tag - browsers
+    # ignore that directive there) because this page is meant to be loaded
+    # inside an <iframe> on a host site. WIDGET_FRAME_ANCESTORS is
+    # substituted at container start from the environment (see Dockerfile),
+    # defaulting to 'self' only - i.e. nobody can iframe this page until an
+    # operator explicitly configures the trusted host domain(s).
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Content-Security-Policy "frame-ancestors ${WIDGET_FRAME_ANCESTORS};" always;
+    }
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}

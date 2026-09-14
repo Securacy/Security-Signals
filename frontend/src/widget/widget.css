@@ -1,0 +1,348 @@
+/*
+ * Security Signals widget styles.
+ *
+ * This stylesheet lives entirely inside the widget's own iframe document,
+ * so there is no host-page CSS to collide with and nothing here can leak
+ * out - the iframe boundary is the isolation mechanism, not naming
+ * conventions or Shadow DOM. Keep that in mind before "fixing" anything
+ * that looks like it should be scoped harder; it doesn't need to be.
+ */
+
+:root {
+  --ss-accent: #2563eb;
+  --ss-accent-contrast: #ffffff;
+  --ss-bg: #ffffff;
+  --ss-surface: #f8fafc;
+  --ss-border: #e2e8f0;
+  --ss-text: #0f172a;
+  --ss-text-muted: #64748b;
+  --ss-danger: #dc2626;
+  --ss-radius: 10px;
+  --ss-focus-ring: 2px solid #2563eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ss-accent: #60a5fa;
+    --ss-accent-contrast: #0b1220;
+    --ss-bg: #0b1220;
+    --ss-surface: #111a2c;
+    --ss-border: #1f2b45;
+    --ss-text: #e2e8f0;
+    --ss-text-muted: #94a3b8;
+    --ss-danger: #f87171;
+    --ss-focus-ring: 2px solid #60a5fa;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+  background: var(--ss-bg);
+  color: var(--ss-text);
+  line-height: 1.5;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--ss-accent);
+}
+
+:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Drawer shell */
+
+.ss-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.ss-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ss-border);
+  flex-shrink: 0;
+}
+
+.ss-drawer__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ss-close-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--ss-text-muted);
+}
+
+.ss-close-button:hover {
+  background: var(--ss-surface);
+  color: var(--ss-text);
+}
+
+.ss-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* Category filter */
+
+.ss-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ss-chip {
+  border: 1px solid var(--ss-border);
+  background: var(--ss-surface);
+  color: var(--ss-text-muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ss-chip[data-active="true"] {
+  background: var(--ss-accent);
+  border-color: var(--ss-accent);
+  color: var(--ss-accent-contrast);
+}
+
+.ss-chip--static {
+  cursor: default;
+  font-size: 0.6875rem;
+  padding: 3px 9px;
+}
+
+/* Feed / cards */
+
+.ss-feed__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ss-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--ss-surface);
+  border: 1px solid var(--ss-border);
+  border-radius: var(--ss-radius);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.ss-card:hover {
+  border-color: var(--ss-accent);
+}
+
+.ss-card:active {
+  transform: scale(0.99);
+}
+
+.ss-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ss-card__title {
+  margin: 0 0 6px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.ss-card__summary {
+  margin: 0 0 8px 0;
+  font-size: 0.8125rem;
+  color: var(--ss-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ss-card__meta {
+  font-size: 0.75rem;
+  color: var(--ss-text-muted);
+}
+
+/* Loading skeletons */
+
+.ss-feed-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ss-card--skeleton {
+  cursor: default;
+}
+
+.ss-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ss-border) 25%, var(--ss-surface) 50%, var(--ss-border) 75%);
+  background-size: 200% 100%;
+  animation: ss-shimmer 1.4s ease-in-out infinite;
+  margin-bottom: 8px;
+}
+
+.ss-skeleton-line--title {
+  width: 60%;
+  height: 14px;
+}
+
+.ss-skeleton-line--chip {
+  width: 30%;
+  height: 16px;
+  border-radius: 999px;
+}
+
+.ss-skeleton-line--short {
+  width: 40%;
+}
+
+@keyframes ss-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Empty / error states */
+
+.ss-empty-state,
+.ss-error-state {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--ss-text-muted);
+}
+
+.ss-empty-state__title,
+.ss-error-state__title {
+  color: var(--ss-text);
+  font-weight: 600;
+  margin: 0 0 6px 0;
+}
+
+.ss-empty-state__body,
+.ss-error-state__body {
+  margin: 0 0 16px 0;
+  font-size: 0.875rem;
+}
+
+.ss-button {
+  border: 1px solid var(--ss-border);
+  background: var(--ss-surface);
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.ss-button--retry {
+  border-color: var(--ss-danger);
+  color: var(--ss-danger);
+}
+
+.ss-button--load-more {
+  display: block;
+  margin: 16px auto 0;
+}
+
+.ss-loading-more {
+  text-align: center;
+  padding: 12px;
+  color: var(--ss-text-muted);
+  font-size: 0.8125rem;
+}
+
+/* Detail view */
+
+.ss-back-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ss-accent);
+  padding: 0 0 16px 0;
+  font-size: 0.875rem;
+}
+
+.ss-detail__title {
+  font-size: 1.125rem;
+  margin: 0 0 4px 0;
+}
+
+.ss-detail__meta {
+  color: var(--ss-text-muted);
+  font-size: 0.75rem;
+  margin: 0 0 20px 0;
+}
+
+.ss-detail__section {
+  margin-bottom: 20px;
+}
+
+.ss-detail__section h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ss-text-muted);
+  margin: 0 0 6px 0;
+}
+
+.ss-detail__section p {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.ss-evidence-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ss-detail__skeleton .ss-skeleton-line {
+  height: 12px;
+}
