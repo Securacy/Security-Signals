@@ -14,7 +14,7 @@ Unit tests mock these; integration tests use real database.
 from typing import Optional, List, Any
 from uuid import UUID
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc, and_, or_, func, case
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from app.db.models import (
@@ -273,24 +273,107 @@ class SignalRepository(BaseRepository):
         except Exception as e:
             raise DatabaseError(f"Error fetching signals by status: {e}")
 
+    _SORT_RECENT = "recent"
+    _SORT_SOURCES = "sources"
+    _SORT_RELEVANT = "relevant"
+    _SORT_PRIORITY = "priority"
+    VALID_SORTS = {_SORT_RECENT, _SORT_SOURCES, _SORT_RELEVANT, _SORT_PRIORITY}
+
     def get_published(
         self,
         skip: int = 0,
         limit: int = 100,
         category: Optional[SecurityCategoryType] = None,
+        subcategory: Optional[str] = None,
+        search: Optional[str] = None,
+        keywords: Optional[List[str]] = None,
+        categories: Optional[List[SecurityCategoryType]] = None,
+        sort: str = "recent",
     ) -> List[Signal]:
-        """Get published signals (public API), optionally filtered by category.
+        """Get published signals (public API), optionally filtered/sorted.
 
-        `category` is optional and additive: omitting it preserves the
-        original unfiltered behavior for any existing caller.
+        All filter/sort params are optional and additive: omitting them
+        preserves the original unfiltered, published_at-desc behavior for
+        any existing caller.
+
+        Sort options are each backed by real, already-stored data - never a
+        fabricated score:
+          - "recent" (default): published_at, newest first.
+          - "sources": number of Evidence records, most corroborated first.
+          - "relevant": the AI's own recorded classification confidence
+            (SignalCategory.confidence), highest first.
+          - "priority": the originating SecurityEvent's real severity
+            first, then AI confidence as a tiebreaker. Severity is
+            currently uniform (see EventGrouper) so this mostly reduces to
+            "relevant" today - documented, not hidden.
         """
         try:
-            q = self.session.query(Signal).filter(Signal.status == SignalStatus.PUBLISHED)
-            if category is not None:
-                q = q.join(SignalCategory, SignalCategory.signal_id == Signal.id).filter(
-                    SignalCategory.category == category
+            # Only CURRENT published signals - a signal retired to
+            # historical (superseded by a newer one in the same category,
+            # see SignalService._retire_superseded_current_signals) stays
+            # PUBLISHED and fully queryable for audit/analytics/dedup, but
+            # drops out of the public "current" feed.
+            q = self.session.query(Signal).filter(
+                Signal.status == SignalStatus.PUBLISHED,
+                Signal.is_current.is_(True),
+            )
+
+            if category is not None or subcategory is not None or categories:
+                q = q.join(SignalCategory, SignalCategory.signal_id == Signal.id)
+                if category is not None:
+                    q = q.filter(SignalCategory.category == category)
+                elif categories:
+                    q = q.filter(SignalCategory.category.in_(categories))
+                if subcategory is not None:
+                    q = q.filter(SignalCategory.subcategory == subcategory)
+
+            # search: single substring match (existing behavior, unchanged).
+            # keywords: additional OR-matched terms (Feature 3 - AI search
+            # query expansion) - a signal matches if ANY term appears in any
+            # of the same three text fields. Both are additive: passing
+            # both ANDs the single `search` requirement with "at least one
+            # keyword also matches", which is never triggered by the
+            # existing single-term callers since they never pass keywords.
+            terms = ([search] if search else []) + (keywords or [])
+            if terms:
+                conditions = []
+                for term in terms:
+                    like = f"%{term}%"
+                    conditions.append(Signal.title.ilike(like))
+                    conditions.append(Signal.summary.ilike(like))
+                    conditions.append(Signal.security_impact.ilike(like))
+                q = q.filter(or_(*conditions))
+
+            if sort == self._SORT_SOURCES:
+                q = (
+                    q.outerjoin(Evidence, Evidence.signal_id == Signal.id)
+                    .group_by(Signal.id)
+                    .order_by(desc(func.count(Evidence.id)), desc(Signal.published_at))
                 )
-            return q.order_by(desc(Signal.published_at)).offset(skip).limit(limit).all()
+            elif sort == self._SORT_RELEVANT:
+                q = (
+                    q.outerjoin(SignalCategory, SignalCategory.signal_id == Signal.id)
+                    .group_by(Signal.id)
+                    .order_by(desc(func.max(SignalCategory.confidence)), desc(Signal.published_at))
+                )
+            elif sort == self._SORT_PRIORITY:
+                severity_rank = case(
+                    (SecurityEvent.severity == EventSeverity.CRITICAL, 4),
+                    (SecurityEvent.severity == EventSeverity.HIGH, 3),
+                    (SecurityEvent.severity == EventSeverity.MEDIUM, 2),
+                    (SecurityEvent.severity == EventSeverity.LOW, 1),
+                    else_=0,
+                )
+                q = (
+                    q.outerjoin(SecurityEvent, SecurityEvent.id == Signal.event_id)
+                    .outerjoin(SignalCategory, SignalCategory.signal_id == Signal.id)
+                    .group_by(Signal.id, SecurityEvent.severity)
+                    .order_by(desc(severity_rank), desc(func.max(SignalCategory.confidence)), desc(Signal.published_at))
+                )
+            else:
+                q = q.order_by(desc(Signal.published_at))
+
+            return q.offset(skip).limit(limit).all()
         except Exception as e:
             raise DatabaseError(f"Error fetching published signals: {e}")
 

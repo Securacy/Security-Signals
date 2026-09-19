@@ -1,10 +1,32 @@
 """Tests for HTTP client."""
 
 import asyncio
+import socket
 import pytest
+from app.common import http_client as http_client_module
 from app.common.http_client import (
     _is_private_address, SSRFError, HTTPError, HTTPClient, resolve_hostname_safe
 )
+
+
+class _FakeLoop:
+    """Stands in for asyncio's event loop, returning a fixed getaddrinfo()
+    result set - lets these tests deterministically control DNS resolution
+    order without touching real DNS or real sockets."""
+
+    def __init__(self, results):
+        self._results = results
+
+    async def getaddrinfo(self, host, port, family=0, type=0):
+        return self._results
+
+
+def _ipv6_result(ip: str):
+    return (socket.AF_INET6, socket.SOCK_STREAM, 6, '', (ip, 443, 0, 0))
+
+
+def _ipv4_result(ip: str):
+    return (socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, 443))
 
 
 def _reader(data: bytes) -> asyncio.StreamReader:
@@ -63,6 +85,57 @@ async def test_127_rejected():
     """127.0.0.1 rejected."""
     with pytest.raises(SSRFError):
         await resolve_hostname_safe('127.0.0.1')
+
+
+class TestIPv4PreferredOverIPv6:
+    """Regression tests for the real IPv6-hangs-then-times-out bug found by
+    comparing curl (succeeds instantly) against this client (times out)
+    against real feeds - traced to getaddrinfo(family=0) returning IPv6
+    first for hosts whose IPv6 route isn't actually usable in this
+    environment, and the old code pinning to whichever result came first."""
+
+    @pytest.mark.asyncio
+    async def test_prefers_ipv4_when_both_families_resolve(self, monkeypatch):
+        results = [_ipv6_result('2606:4700::1111'), _ipv4_result('93.184.216.34')]
+        monkeypatch.setattr(http_client_module.asyncio, "get_event_loop", lambda: _FakeLoop(results))
+
+        ip = await resolve_hostname_safe('example.com')
+
+        assert ip == '93.184.216.34'
+
+    @pytest.mark.asyncio
+    async def test_prefers_ipv4_regardless_of_result_order(self, monkeypatch):
+        results = [_ipv4_result('93.184.216.34'), _ipv6_result('2606:4700::1111')]
+        monkeypatch.setattr(http_client_module.asyncio, "get_event_loop", lambda: _FakeLoop(results))
+
+        ip = await resolve_hostname_safe('example.com')
+
+        assert ip == '93.184.216.34'
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_ipv6_when_no_ipv4_available(self, monkeypatch):
+        results = [_ipv6_result('2606:4700::1111')]
+        monkeypatch.setattr(http_client_module.asyncio, "get_event_loop", lambda: _FakeLoop(results))
+
+        ip = await resolve_hostname_safe('ipv6only.example.com')
+
+        assert ip == '2606:4700::1111'
+
+    @pytest.mark.asyncio
+    async def test_ipv4_preference_does_not_bypass_private_ip_rejection(self, monkeypatch):
+        results = [_ipv6_result('2606:4700::1111'), _ipv4_result('10.0.0.5')]
+        monkeypatch.setattr(http_client_module.asyncio, "get_event_loop", lambda: _FakeLoop(results))
+
+        with pytest.raises(SSRFError):
+            await resolve_hostname_safe('rebinding.example.com')
+
+    @pytest.mark.asyncio
+    async def test_ipv6_only_private_result_still_rejected(self, monkeypatch):
+        results = [_ipv6_result('::1')]
+        monkeypatch.setattr(http_client_module.asyncio, "get_event_loop", lambda: _FakeLoop(results))
+
+        with pytest.raises(SSRFError):
+            await resolve_hostname_safe('rebinding6.example.com')
 
 
 class TestIsRetryable:

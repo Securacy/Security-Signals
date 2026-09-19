@@ -12,11 +12,12 @@ from uuid import UUID
 import logging
 
 from app.db.connection import get_db
-from app.db.models import User, SignalStatus, SecurityCategoryType
+from app.db.models import User, SignalStatus, SecurityCategoryType, VisualStatus, SignalVisual
 from app.repositories import SignalRepository, EvidenceRepository, SignalCategoryRepository
 from app.api.dependencies import require_reviewer, require_admin
 from app.services.signal_service import SignalService
 from app.common.errors import NotFoundError
+from app.taxonomy import UnknownPublicCategoryError, internal_categories_to_public, public_category_to_internal
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ def list_published_signals(
     skip: int = 0,
     limit: int = Query(default=10, le=100),
     category: Optional[SecurityCategoryType] = None,
+    public_category: Optional[str] = None,
+    subcategory: Optional[str] = None,
+    search: Optional[str] = Query(default=None, max_length=200),
+    sort: str = Query(default="recent"),
     db: Session = Depends(get_db)
 ):
     """List published signals - PUBLIC endpoint.
@@ -40,16 +45,43 @@ def list_published_signals(
     Args:
         skip: Number of records to skip (pagination)
         limit: Maximum records to return (capped at 100)
-        category: Optional category filter (e.g. "vulnerability")
+        category: Optional INTERNAL category filter (e.g. "insecure_design") -
+            kept for backward compatibility / internal callers.
+        public_category: Optional PUBLIC category filter (e.g.
+            "product_security"), translated to the internal categories it
+            aggregates (see app.taxonomy). Takes precedence over `category`
+            if both are given - the public widget uses this exclusively.
+        subcategory: Optional AI subcategory filter (only meaningful with category=ai_security)
+        search: Optional case-insensitive substring match over title/summary/security_impact
+        sort: One of "recent" (default), "sources", "relevant", "priority" - see SignalRepository.get_published
         db: Database session
 
     Returns:
-        List of published signals, each including its category tags
+        List of published signals, each including its internal category
+        tags AND its consolidated `public_categories` (deduplicated, see
+        app.taxonomy.internal_categories_to_public).
     """
+    if sort not in SignalRepository.VALID_SORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sort. Allowed: {sorted(SignalRepository.VALID_SORTS)}",
+        )
+
+    internal_categories = None
+    if public_category is not None:
+        try:
+            internal_categories = public_category_to_internal(public_category)
+        except UnknownPublicCategoryError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        category = None  # public_category takes precedence
+
     signal_repo = SignalRepository(db)
     category_repo = SignalCategoryRepository(db)
 
-    signals = signal_repo.get_published(skip=skip, limit=limit, category=category)
+    signals = signal_repo.get_published(
+        skip=skip, limit=limit, category=category, categories=internal_categories,
+        subcategory=subcategory, search=search, sort=sort,
+    )
 
     categories_by_signal = {}
     for cat in category_repo.get_by_signal_ids([sig.id for sig in signals]):
@@ -57,6 +89,7 @@ def list_published_signals(
             {
                 "id": str(cat.id),
                 "category": cat.category.value if hasattr(cat.category, "value") else cat.category,
+                "subcategory": cat.subcategory,
             }
         )
 
@@ -70,6 +103,9 @@ def list_published_signals(
             "recommended_action": sig.recommended_action,
             "published_at": sig.published_at.isoformat() if sig.published_at else None,
             "categories": categories_by_signal.get(sig.id, []),
+            "public_categories": internal_categories_to_public(
+                c["category"] for c in categories_by_signal.get(sig.id, [])
+            ),
         }
         for sig in signals
     ]
@@ -123,15 +159,25 @@ def get_published_signal(
     # Get categories for this signal
     # Repository methods return empty lists if no records found
     categories = category_repo.get_by_signal(signal.id)
-    
+
     categories_data = [
         {
             "id": str(cat.id),
             "category": cat.category.value if hasattr(cat.category, 'value') else cat.category,
+            "subcategory": cat.subcategory,
         }
         for cat in categories
     ]
-    
+
+    # Signal-specific visual (Section 15-19 of the taxonomy/visuals spec):
+    # only exposed on the detail response, never the list/feed response -
+    # the feed stays lightweight (icons only); the actual image only
+    # matters once a viewer opens one specific signal. Never triggers
+    # generation from this GET - generation only happens once, at publish
+    # time (SignalService.publish_signal) - this only reads whatever
+    # already exists (or doesn't).
+    visual = db.query(SignalVisual).filter_by(signal_id=signal.id).one_or_none()
+
     return {
         "id": str(signal.id),
         "title": signal.title,
@@ -142,6 +188,9 @@ def get_published_signal(
         "published_at": signal.published_at.isoformat() if signal.published_at else None,
         "evidence": evidence_data,
         "categories": categories_data,
+        "public_categories": internal_categories_to_public(c["category"] for c in categories_data),
+        "visual_status": visual.status.value if visual else VisualStatus.PENDING.value,
+        "visual_url": visual.url if visual and visual.status == VisualStatus.GENERATED else None,
     }
 
 

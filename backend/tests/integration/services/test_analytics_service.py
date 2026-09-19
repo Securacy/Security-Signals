@@ -22,7 +22,7 @@ def _make_signal(
     status: SignalStatus,
     published_at: datetime = None,
     created_at: datetime = None,
-    category: SecurityCategoryType = SecurityCategoryType.VULNERABILITY,
+    category: SecurityCategoryType = SecurityCategoryType.INSECURE_DESIGN,
     principle: str = "Least Privilege",
 ) -> Signal:
     """Create a Signal directly with explicit timestamps, bypassing the
@@ -70,7 +70,7 @@ def three_month_dataset(db: Session, security_event):
         "published_2mo_ago_vuln": _make_signal(
             db, security_event, SignalStatus.PUBLISHED,
             published_at=months_ago(2), created_at=months_ago(2),
-            category=SecurityCategoryType.VULNERABILITY, principle="Least Privilege",
+            category=SecurityCategoryType.INSECURE_DESIGN, principle="Least Privilege",
         ),
         "published_1mo_ago_iam": _make_signal(
             db, security_event, SignalStatus.PUBLISHED,
@@ -132,7 +132,7 @@ class TestPublicAnalytics:
         service = AnalyticsService(db)
         result = service.get_public_analytics(months=3)
 
-        assert result["category_counts"] == {"vulnerability": 1, "iam": 3}
+        assert result["category_counts"] == {"insecure_design": 1, "iam": 3}
         # RANSOMWARE (draft) and SUPPLY_CHAIN (in_review) must not appear:
         assert "ransomware" not in result["category_counts"]
         assert "supply_chain" not in result["category_counts"]

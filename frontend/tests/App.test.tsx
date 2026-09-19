@@ -20,6 +20,7 @@ describe("App", () => {
                 recommended_action: "action",
                 published_at: new Date().toISOString(),
                 categories: [],
+                public_categories: [],
               },
             ]),
         }),

@@ -14,7 +14,10 @@ from app.repositories import (
     SecurityEventRepository, AuditLogRepository
 )
 from app.intelligence.schemas.signal_request import AISignalGenerationResponse
+from app.intelligence.visual_service import ThreatVisualService
 from app.common.errors import NotFoundError, DatabaseError
+from app.ingestion.freshness_policy import FreshnessPolicy
+from app.taxonomy import internal_categories_to_public
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +60,32 @@ def _map_principle_and_recommended_action(
 class SignalService:
     """Service for managing signals across their lifecycle."""
     
-    def __init__(self, session: Session):
+    def __init__(
+        self,
+        session: Session,
+        freshness_policy: Optional[FreshnessPolicy] = None,
+        visual_service: Optional[ThreatVisualService] = None,
+    ):
         self.session = session
         self.signal_repo = SignalRepository(session)
         self.category_repo = SignalCategoryRepository(session)
         self.evidence_repo = EvidenceRepository(session)
         self.event_repo = SecurityEventRepository(session)
         self.audit_repo = AuditLogRepository(session)
+        if freshness_policy is None:
+            from app.config import get_settings
+            freshness_policy = FreshnessPolicy.from_settings(get_settings())
+        self.freshness_policy = freshness_policy
+        self._visual_service = visual_service
+
+    def _get_visual_service(self) -> ThreatVisualService:
+        """Lazily build the production Bedrock-backed visual service only
+        when actually needed, so constructing a SignalService for tests
+        that never publish never requires real AWS credentials."""
+        if self._visual_service is None:
+            from app.config import get_settings
+            self._visual_service = ThreatVisualService.from_settings(get_settings())
+        return self._visual_service
     
     def _audit_signal_action(
         self,
@@ -406,19 +428,105 @@ class SignalService:
                     "published_at": datetime.now(timezone.utc).isoformat()
                 }
             )
-            
+
             updated = self.signal_repo.update(
                 signal_id,
                 status=SignalStatus.PUBLISHED,
-                published_at=datetime.now(timezone.utc)
+                published_at=datetime.now(timezone.utc),
+                is_current=True,
             )
             self.session.flush()
+
+            # Current-feed retention (Feature 2 / Feature 1 "week 2"
+            # behavior): this newly-published signal takes a "current" slot
+            # in each of its categories. If that pushes a category over its
+            # configured retention count, retire the OLDEST excess current
+            # signals in that category to historical - never delete them,
+            # and this only ever runs as a side effect of a successful new
+            # publish, so a category can never be emptied by this step
+            # (there is always at least one current signal left: the one
+            # that just triggered the retirement).
+            self._retire_superseded_current_signals(updated)
+
             logger.info(f"Published signal {signal_id}")
-            return updated
         except Exception as e:
             self.session.rollback()
             logger.error(f"Failed to publish signal: {e}")
             raise DatabaseError(f"Failed to publish signal: {e}")
+
+        # Signal-specific visual generation is queued AFTER the publish
+        # transaction above has fully succeeded, and is deliberately
+        # isolated in its own try/except: image-generation failure (or
+        # being disabled, or the queueing itself failing) must NEVER
+        # unpublish or fail an otherwise-valid publish action.
+        #
+        # The real Bedrock call this eventually makes can take several
+        # seconds (or hang on a slow/unavailable provider), so it must
+        # never run inline on this HTTP request - it's queued as a
+        # background job on the application's existing scheduler (see
+        # app/scheduler/ingestion_scheduler.py's schedule_visual_generation
+        # and app/scheduler/visual_generation_job.py), which opens its own
+        # DB session once the job actually runs. If no background
+        # scheduler is active in this process (tests, a one-off script, or
+        # a replica with SCHEDULER_ENABLED=false), this falls back to a
+        # synchronous inline attempt - still after publish has already
+        # committed, so it can be slow but can never roll back the publish.
+        try:
+            from app.config import get_settings
+            if get_settings().visual_generation_enabled:
+                from app.scheduler.ingestion_scheduler import ingestion_scheduler
+                queued = ingestion_scheduler.schedule_visual_generation(updated.id)
+                if not queued:
+                    categories = self.category_repo.get_by_signal(updated.id)
+                    public_categories = internal_categories_to_public(c.category for c in categories)
+                    self._get_visual_service().generate_for_signal(self.session, updated, public_categories)
+                    self.session.flush()
+        except Exception as e:
+            logger.warning(f"visual_generation_skipped signal_id={signal_id} error={e}")
+
+        return updated
+
+    def _retire_superseded_current_signals(self, new_signal: Signal) -> None:
+        """Retire the oldest excess current signals in each of
+        `new_signal`'s categories, keeping at most
+        freshness_policy.max_current_signals_per_category current signals
+        per category (the new one included). Retired signals keep their
+        PUBLISHED status and all history/evidence/audit records - only
+        is_current flips to False, so they remain fully queryable for
+        audit/analytics/dedup, just excluded from the public "current" feed.
+        """
+        keep = self.freshness_policy.max_current_signals_per_category
+        category_ids = {c.category for c in new_signal.categories}
+
+        for category in category_ids:
+            current_in_category = (
+                self.session.query(Signal)
+                .join(SignalCategory, SignalCategory.signal_id == Signal.id)
+                .filter(
+                    SignalCategory.category == category,
+                    Signal.status == SignalStatus.PUBLISHED,
+                    Signal.is_current.is_(True),
+                )
+                .order_by(Signal.published_at.desc())
+                .all()
+            )
+            # Newest-first list; anything beyond `keep` is retired, oldest first.
+            to_retire = current_in_category[keep:]
+
+            for stale_signal in to_retire:
+                self.signal_repo.update(stale_signal.id, is_current=False)
+                self._audit_signal_action(
+                    signal_id=stale_signal.id,
+                    action="SIGNAL_RETIRED_FROM_CURRENT",
+                    reviewer_id=None,
+                    changes={
+                        "is_current_from": True,
+                        "is_current_to": False,
+                        "superseded_by": str(new_signal.id),
+                        "category": category.value if hasattr(category, "value") else category,
+                    },
+                )
+        self.session.flush()
     
     def get_published_signals(
         self,

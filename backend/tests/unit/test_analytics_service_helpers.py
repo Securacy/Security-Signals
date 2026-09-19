@@ -77,14 +77,14 @@ class TestDominantTheme:
         assert _dominant_theme({}) is None
 
     def test_single_category(self):
-        assert _dominant_theme({"vulnerability": 5}) == {"category": "vulnerability", "count": 5}
+        assert _dominant_theme({"insecure_design": 5}) == {"category": "insecure_design", "count": 5}
 
     def test_highest_count_wins(self):
-        counts = {"vulnerability": 3, "iam": 10, "ransomware": 1}
+        counts = {"insecure_design": 3, "iam": 10, "ransomware": 1}
         assert _dominant_theme(counts) == {"category": "iam", "count": 10}
 
     def test_tie_broken_alphabetically(self):
-        counts = {"vulnerability": 5, "iam": 5}
+        counts = {"insecure_design": 5, "iam": 5}
         assert _dominant_theme(counts) == {"category": "iam", "count": 5}
 
 

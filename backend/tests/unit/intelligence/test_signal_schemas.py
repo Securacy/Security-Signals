@@ -72,7 +72,7 @@ class TestAISignalGenerationResponse:
         resp = AISignalGenerationResponse(
             signal_title="Critical Apache RCE",
             signal_description="Remote code execution requiring immediate patch for Apache HTTP Server",
-            category="vulnerability",
+            category="insecure_design",
             ai_subcategory=None,
             confidence=0.95,
             evidence_summary="Apache released security update for CVE-2024-12345",
@@ -94,7 +94,7 @@ class TestAISignalGenerationResponse:
     
     def test_all_security_categories_valid(self):
         categories = [
-            "vulnerability", "cloud_security", "iam", "app_api",
+            "insecure_design", "cloud_security", "iam", "app_api",
             "supply_chain", "data_privacy", "ransomware", "threat_intel",
             "ai_security", "infrastructure"
         ]
@@ -171,7 +171,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="Title",
                 signal_description="Valid description text here",
-                category="vulnerability",
+                category="insecure_design",
                 ai_subcategory="llm_vulnerability",
                 confidence=0.85,
                 evidence_summary="Evidence here",
@@ -182,7 +182,7 @@ class TestAISignalGenerationResponse:
         resp = AISignalGenerationResponse(
             signal_title="Title Test",
             signal_description="Valid description with minimum threshold testing",
-            category="vulnerability",
+            category="insecure_design",
             confidence=0.5,
             evidence_summary="Evidence for testing",
             secure_design_principles=[]
@@ -194,7 +194,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="Title Test",
                 signal_description="Valid description text here",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.49,
                 evidence_summary="Evidence here",
                 secure_design_principles=[]
@@ -204,7 +204,7 @@ class TestAISignalGenerationResponse:
         resp = AISignalGenerationResponse(
             signal_title="Title Test",
             signal_description="Valid description with maximum confidence testing",
-            category="vulnerability",
+            category="insecure_design",
             confidence=1.0,
             evidence_summary="Evidence for testing",
             secure_design_principles=[]
@@ -216,7 +216,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="Title Test",
                 signal_description="Valid description text here",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=1.01,
                 evidence_summary="Evidence here",
                 secure_design_principles=[]
@@ -227,7 +227,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="Bad",
                 signal_description="Valid description text here",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Evidence",
                 secure_design_principles=[]
@@ -238,7 +238,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="x" * 201,
                 signal_description="Valid description text here",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Evidence",
                 secure_design_principles=[]
@@ -249,7 +249,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="Valid Title",
                 signal_description="Short",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Evidence",
                 secure_design_principles=[]
@@ -260,7 +260,7 @@ class TestAISignalGenerationResponse:
             AISignalGenerationResponse(
                 signal_title="Valid Title",
                 signal_description="Valid description text here",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Short",
                 secure_design_principles=[]
@@ -270,7 +270,7 @@ class TestAISignalGenerationResponse:
         resp = AISignalGenerationResponse(
             signal_title="Title Test",
             signal_description="Valid description with multiple principles testing",
-            category="vulnerability",
+            category="insecure_design",
             confidence=0.85,
             evidence_summary="Evidence for testing",
             secure_design_principles=[

@@ -17,7 +17,7 @@ class TestEvidenceValidation:
         return {
             "signal_title": "Critical Apache RCE",
             "signal_description": "Critical remote code execution requiring immediate patch for Apache HTTP Server",
-            "category": "vulnerability",
+            "category": "insecure_design",
             "ai_subcategory": None,
             "confidence": 0.95,
             "evidence_summary": "CVE-2024-12345 is an Apache RCE vulnerability",

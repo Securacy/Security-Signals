@@ -70,7 +70,7 @@ def test_create_signal_from_ai(test_session):
     ai_response = AISignalGenerationResponse(
         signal_title="Signal",
         signal_description="This is a detailed security signal description about a critical vulnerability in the system.",
-        category="vulnerability",
+        category="insecure_design",
         confidence=0.8,
         evidence_summary="Evidence of compromise discovered in security audit.",
         secure_design_principles=[]
@@ -116,7 +116,7 @@ def test_get_published_signals(test_session):
     ai_response = AISignalGenerationResponse(
         signal_title="Signal",
         signal_description="Comprehensive security signal description covering vulnerability analysis and remediation steps for system hardening.",
-        category="vulnerability",
+        category="insecure_design",
         confidence=0.8,
         evidence_summary="Evidence discovered in security audit and vulnerability assessment.",
         secure_design_principles=[]

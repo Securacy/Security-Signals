@@ -76,8 +76,21 @@ class SignalStatus(str, enum.Enum):
 
 
 class SecurityCategoryType(str, enum.Enum):
-    """Security domain taxonomy."""
-    VULNERABILITY = "vulnerability"
+    """Security domain taxonomy.
+
+    Security Signals is a threat-modeling platform: categories answer "what
+    security domain or design concern does this event belong to", not "is
+    this technically a vulnerability". INSECURE_DESIGN replaced the former
+    VULNERABILITY category (see migration 012) - a vulnerability may still
+    be described inside a signal's content, but "vulnerability" alone was
+    not a useful threat-modeling domain. A design/architecture flaw (broken
+    trust boundary, insecure auth architecture, fail-open behavior, unsafe
+    multi-tenant isolation, etc.) belongs here; a pure implementation defect
+    with no design-level lesson (e.g. a memory-safety bug in a library)
+    belongs under the domain that library serves (typically INFRASTRUCTURE
+    or APP_API).
+    """
+    INSECURE_DESIGN = "insecure_design"
     CLOUD_SECURITY = "cloud_security"
     IAM = "iam"
     APP_API = "app_api"
@@ -378,7 +391,18 @@ class Signal(Base):
     ai_generated_at = Column(DateTime(timezone=True), nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     published_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    
+
+    # Current-feed visibility (migration 013): a PUBLISHED signal starts
+    # is_current=True. It is set False ONLY as a side effect of a NEWER
+    # signal being published in the same category beyond the configured
+    # retention count (SignalService.publish_signal /
+    # app.ingestion.freshness_policy.FreshnessPolicy.max_current_signals_per_category)
+    # - never deleted, never retired by a standalone job, and never retired
+    # just because no new data arrived. The public API's "published" feed
+    # filters on is_current=True; historical rows remain queryable for
+    # audit/analytics/dedup via status alone.
+    is_current = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
+
     # Audit
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
@@ -396,7 +420,13 @@ class Signal(Base):
         back_populates="signal",
         cascade="all, delete-orphan"
     )
-    
+    visual = relationship(
+        "SignalVisual",
+        back_populates="signal",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
     # Constraints
     __table_args__ = (
         Index("ix_signal_status_published", "status", "published_at"),
@@ -516,6 +546,68 @@ class Evidence(Base):
     
     def __repr__(self):
         return f"<Evidence {self.source_url[:50]}>"
+
+
+# ============================================================================
+# ENTITY 7b: SIGNAL_VISUAL
+# ============================================================================
+
+class VisualStatus(str, enum.Enum):
+    """Lifecycle of a signal's AI-generated, signal-specific visual."""
+    PENDING = "pending"
+    GENERATED = "generated"
+    FAILED = "failed"
+
+
+class SignalVisual(Base):
+    """
+    AI-generated, signal-specific threat visualization - exactly one per
+    Signal (never shared/reused between signals or across a category).
+
+    This is NOT the same thing as a category icon: category icons are
+    small, static, reusable SVGs rendered entirely in the frontend (see
+    frontend/src/widget/publicTaxonomy.tsx). A SignalVisual is a unique
+    image generated from THIS signal's own real content
+    (title/summary/security_impact/principle/recommended_action), produced
+    once (see ThreatVisualService.generate_for_signal, invoked from
+    SignalService.publish_signal) and persisted so every later view reuses
+    the same file - never regenerated on a normal page load.
+
+    Lifecycle: PENDING (row exists, generation not yet attempted or in
+    flight) -> GENERATED (file persisted, url set, generated_at set) or
+    FAILED (generation was attempted and did not succeed). Image-generation
+    failure never blocks or is blocked by signal publication - the row is
+    created best-effort after a signal is already published; the frontend
+    falls back to a category-based static visual whenever status is
+    anything other than GENERATED.
+
+    CASCADE: deleted with Signal (part of signal, like Evidence/SignalCategory).
+    """
+    __tablename__ = "signal_visual"
+
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    signal_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("signal.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # exactly one visual per signal
+        index=True,
+    )
+
+    status = Column(SQLEnum(VisualStatus), nullable=False, default=VisualStatus.PENDING, index=True)
+    url = Column(String(1000), nullable=True)  # relative path (e.g. /media/signals/<id>.png) once generated
+    prompt_version = Column(String(50), nullable=False, default="v1")
+    error = Column(Text, nullable=True)  # last failure reason - never a secret, see ThreatVisualService
+
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+    signal = relationship("Signal", back_populates="visual", uselist=False)
+
+    def __repr__(self):
+        return f"<SignalVisual {self.status.value} signal_id={self.signal_id}>"
 
 
 # ============================================================================

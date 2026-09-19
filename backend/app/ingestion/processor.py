@@ -33,8 +33,11 @@ class EventGrouper:
     def __init__(self, session: Session):
         self.session = session
     
-    def find_or_create_event(self, title: str, description: str) -> SecurityEvent:
-        """Find existing or create new event.
+    def find_or_create_event(self, title: str, description: str) -> tuple[SecurityEvent, bool]:
+        """Find existing or create new event. Returns (event, created) so
+        callers can tell a brand-new event (this run actually found
+        something new) from one that already existed - needed for the
+        "no new qualifying events" run-status distinction.
 
         security_event.name has a DB-level unique constraint (migration
         001), so any title that already exists as an event - whether from
@@ -53,12 +56,12 @@ class EventGrouper:
                 .one_or_none()
             )
             if existing:
-                return existing
+                return existing, False
 
         # Rule 2: exact name match (the column the unique constraint is on)
         existing = self.session.query(SecurityEvent).filter_by(name=title).one_or_none()
         if existing:
-            return existing
+            return existing, False
 
         # Create new
         event = SecurityEvent(
@@ -71,7 +74,7 @@ class EventGrouper:
         self.session.add(event)
         try:
             self.session.flush()
-            return event
+            return event, True
         except IntegrityError:
             # Lost a race against another insert of the same name (e.g. a
             # concurrent run) - roll back so the session's transaction
@@ -79,5 +82,5 @@ class EventGrouper:
             self.session.rollback()
             existing = self.session.query(SecurityEvent).filter_by(name=title).one_or_none()
             if existing:
-                return existing
+                return existing, False
             raise

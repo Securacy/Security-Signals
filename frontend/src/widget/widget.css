@@ -1,37 +1,81 @@
 /*
  * Security Signals widget styles.
  *
+ * Visual identity: dark ground, purple as the primary brand/accent color,
+ * green reserved for positive/security-status signals (e.g. the AI
+ * Security designation chip) - kept separate from the accent hue so it
+ * reads as status, not brand, per usual semantic-color practice.
+ *
  * This stylesheet lives entirely inside the widget's own iframe document,
  * so there is no host-page CSS to collide with and nothing here can leak
  * out - the iframe boundary is the isolation mechanism, not naming
  * conventions or Shadow DOM. Keep that in mind before "fixing" anything
  * that looks like it should be scoped harder; it doesn't need to be.
+ *
+ * The dark theme is this product's primary identity, but a lighter
+ * variant (same purple/green identity, adjusted for contrast) is still
+ * provided for prefers-color-scheme: light, so a viewer who needs a light
+ * ground for accessibility reasons is never forced into pure black.
  */
 
 :root {
-  --ss-accent: #2563eb;
-  --ss-accent-contrast: #ffffff;
-  --ss-bg: #ffffff;
-  --ss-surface: #f8fafc;
-  --ss-border: #e2e8f0;
-  --ss-text: #0f172a;
-  --ss-text-muted: #64748b;
-  --ss-danger: #dc2626;
+  --ss-accent: #a855f7;
+  --ss-accent-strong: #c084fc;
+  --ss-accent-contrast: #140a1f;
+  --ss-success: #34d399;
+  --ss-success-contrast: #062017;
+  --ss-bg: #0b0712;
+  --ss-surface: #16101f;
+  --ss-surface-2: #201731;
+  --ss-border: #33254a;
+  --ss-text: #f2edf9;
+  --ss-text-muted: #b3a3cc;
+  --ss-danger: #f87171;
   --ss-radius: 10px;
-  --ss-focus-ring: 2px solid #2563eb;
+  --ss-focus-ring: 2px solid var(--ss-accent-strong);
+
+  /* Category-specific icon colors (Section 16 of the taxonomy/icons spec)
+   * - one accent per PUBLIC category, used only for the small card-footer
+   * category icon badges (see .ss-category-icon below). Chosen for
+   * contrast against both --ss-surface (dark) and white (light, via the
+   * override block below), never relied on as the sole signal of which
+   * category an icon is (every icon still carries aria-label + title). */
+  --ss-cat-product_security: #e879f9;
+  --ss-cat-cloud_identity_security: #38bdf8;
+  --ss-cat-supply_chain: #fb923c;
+  --ss-cat-data_privacy: #2dd4bf;
+  --ss-cat-ransomware: #f87171;
+  --ss-cat-threat_intel: #a5b4fc;
+  --ss-cat-ai_security: #a78bfa;
+  --ss-cat-infrastructure: #34d399;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --ss-accent: #60a5fa;
-    --ss-accent-contrast: #0b1220;
-    --ss-bg: #0b1220;
-    --ss-surface: #111a2c;
-    --ss-border: #1f2b45;
-    --ss-text: #e2e8f0;
-    --ss-text-muted: #94a3b8;
-    --ss-danger: #f87171;
-    --ss-focus-ring: 2px solid #60a5fa;
+    --ss-accent: #7e22ce;
+    --ss-accent-strong: #9333ea;
+    --ss-accent-contrast: #ffffff;
+    --ss-success: #15803d;
+    --ss-success-contrast: #ffffff;
+    --ss-bg: #ffffff;
+    --ss-surface: #f8f6fb;
+    --ss-surface-2: #efe9f7;
+    --ss-border: #ded3ec;
+    --ss-text: #1c1526;
+    --ss-text-muted: #675a7d;
+    --ss-danger: #dc2626;
+    --ss-focus-ring: 2px solid #7e22ce;
+
+    /* Deeper/more saturated than the dark-theme values above, for
+     * contrast against a white card surface instead of a near-black one. */
+    --ss-cat-product_security: #c026d3;
+    --ss-cat-cloud_identity_security: #0284c7;
+    --ss-cat-supply_chain: #d97706;
+    --ss-cat-data_privacy: #0d9488;
+    --ss-cat-ransomware: #dc2626;
+    --ss-cat-threat_intel: #4f46e5;
+    --ss-cat-ai_security: #7c3aed;
+    --ss-cat-infrastructure: #15803d;
   }
 }
 
@@ -60,7 +104,7 @@ button {
 }
 
 a {
-  color: var(--ss-accent);
+  color: var(--ss-accent-strong);
 }
 
 :focus-visible {
@@ -104,7 +148,7 @@ a {
 }
 
 .ss-close-button:hover {
-  background: var(--ss-surface);
+  background: var(--ss-surface-2);
   color: var(--ss-text);
 }
 
@@ -114,36 +158,73 @@ a {
   padding: 16px;
 }
 
-/* Category filter */
+/* Filter bar (Change 13: dropdown + search + sort, not a wall of chips) */
 
-.ss-category-filter {
+.ss-filter-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 16px;
+  padding: 12px;
+  background: var(--ss-surface);
+  border: 1px solid var(--ss-border);
+  border-radius: var(--ss-radius);
 }
 
-.ss-chip {
-  border: 1px solid var(--ss-border);
-  background: var(--ss-surface);
+.ss-filter-bar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.ss-filter-bar__row--controls {
+  align-items: flex-end;
+}
+
+.ss-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  flex: 1 1 140px;
+}
+
+.ss-field__label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--ss-text-muted);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 0.8125rem;
-  cursor: pointer;
+  font-weight: 600;
+}
+
+.ss-input,
+.ss-select {
+  background: var(--ss-surface-2);
+  border: 1px solid var(--ss-border);
+  color: var(--ss-text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.ss-input:focus-visible,
+.ss-select:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 1px;
+}
+
+.ss-button--clear {
+  flex: 0 0 auto;
+  border-color: var(--ss-accent);
+  color: var(--ss-accent-strong);
+  background: transparent;
   white-space: nowrap;
 }
 
-.ss-chip[data-active="true"] {
-  background: var(--ss-accent);
-  border-color: var(--ss-accent);
-  color: var(--ss-accent-contrast);
-}
-
-.ss-chip--static {
-  cursor: default;
-  font-size: 0.6875rem;
-  padding: 3px 9px;
+.ss-button--clear:hover {
+  background: var(--ss-surface-2);
 }
 
 /* Feed / cards */
@@ -163,11 +244,12 @@ a {
   border-radius: var(--ss-radius);
   padding: 14px 16px;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ss-card:hover {
   border-color: var(--ss-accent);
+  box-shadow: 0 0 0 1px var(--ss-accent) inset;
 }
 
 .ss-card:active {
@@ -202,6 +284,128 @@ a {
   color: var(--ss-text-muted);
 }
 
+/* Category icons + timestamp row, in that order - the icons anchor the
+ * BOTTOM-LEFT of the card, with the timestamp trailing to their right
+ * (Sections 14/17 of the taxonomy/icons spec: icons live in the card
+ * footer/metadata area, never floating on the right side of a threat
+ * box, never text-chip-sized). Source order matches visual order here
+ * (icons first) rather than relying on flex ordering, so the DOM/reading
+ * order and the visual bottom-left position agree. */
+.ss-card__meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ss-card__meta {
+  margin-left: auto;
+}
+
+.ss-card__category-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A small colored badge per category - translucent category-color
+ * background + a matching subtle ring, so the icon is immediately
+ * noticeable (Section 15) instead of a bare, low-contrast glyph. The
+ * per-category hue comes from the --ss-cat-<slug> custom property (set on
+ * this element via an inline style, since the palette is data-driven -
+ * see publicTaxonomy.tsx) and never relies on color alone: every badge
+ * keeps its aria-label/title from CategoryIcon regardless of hue. */
+.ss-category-icon {
+  --ss-cat-color: var(--ss-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--ss-cat-color);
+  background: color-mix(in srgb, var(--ss-cat-color) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ss-cat-color) 40%, transparent);
+  flex-shrink: 0;
+}
+
+.ss-category-icon__svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Signal-specific visual (detail page only) - a unique, AI-generated
+ * image per signal, never a reusable category image. Fixed 16:9 aspect
+ * ratio to prevent layout shift while it loads. */
+.ss-visual {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--ss-radius);
+  overflow: hidden;
+  background: var(--ss-surface-2);
+  border: 1px solid var(--ss-border);
+  margin-bottom: 14px;
+}
+
+.ss-visual__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ss-visual__fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--ss-surface-2), var(--ss-surface));
+}
+
+.ss-visual__fallback-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--ss-text-muted);
+}
+
+/* Chips */
+
+.ss-chip {
+  border: 1px solid var(--ss-border);
+  background: var(--ss-surface-2);
+  color: var(--ss-text-muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ss-chip[data-active="true"] {
+  background: var(--ss-accent);
+  border-color: var(--ss-accent);
+  color: var(--ss-accent-contrast);
+}
+
+.ss-chip--static {
+  cursor: default;
+  font-size: 0.6875rem;
+  padding: 3px 9px;
+}
+
+/* AI Security designation - uses the status-green, not the brand-purple
+ * accent, so it reads as "this is AI-related" rather than "this is
+ * selected/active". */
+.ss-chip--ai {
+  background: var(--ss-success);
+  border-color: var(--ss-success);
+  color: var(--ss-success-contrast);
+  font-weight: 600;
+}
+
 /* Loading skeletons */
 
 .ss-feed-skeleton {
@@ -217,7 +421,7 @@ a {
 .ss-skeleton-line {
   height: 10px;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--ss-border) 25%, var(--ss-surface) 50%, var(--ss-border) 75%);
+  background: linear-gradient(90deg, var(--ss-border) 25%, var(--ss-surface-2) 50%, var(--ss-border) 75%);
   background-size: 200% 100%;
   animation: ss-shimmer 1.4s ease-in-out infinite;
   margin-bottom: 8px;
@@ -271,11 +475,16 @@ a {
 
 .ss-button {
   border: 1px solid var(--ss-border);
-  background: var(--ss-surface);
+  background: var(--ss-surface-2);
+  color: var(--ss-text);
   border-radius: 8px;
   padding: 8px 16px;
   cursor: pointer;
   font-size: 0.875rem;
+}
+
+.ss-button:hover {
+  border-color: var(--ss-accent);
 }
 
 .ss-button--retry {
@@ -286,11 +495,30 @@ a {
 .ss-button--load-more {
   display: block;
   margin: 16px auto 0;
+  background: var(--ss-accent);
+  border-color: var(--ss-accent);
+  color: var(--ss-accent-contrast);
+  font-weight: 600;
+}
+
+.ss-button--load-more:hover {
+  background: var(--ss-accent-strong);
+  border-color: var(--ss-accent-strong);
 }
 
 .ss-loading-more {
   text-align: center;
   padding: 12px;
+  color: var(--ss-text-muted);
+  font-size: 0.8125rem;
+}
+
+.ss-search-understood {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--ss-accent-soft, rgba(94, 234, 212, 0.08));
+  border: 1px solid var(--ss-accent-strong);
   color: var(--ss-text-muted);
   font-size: 0.8125rem;
 }
@@ -301,7 +529,7 @@ a {
   background: transparent;
   border: none;
   cursor: pointer;
-  color: var(--ss-accent);
+  color: var(--ss-accent-strong);
   padding: 0 0 16px 0;
   font-size: 0.875rem;
 }
@@ -325,7 +553,7 @@ a {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ss-text-muted);
+  color: var(--ss-accent-strong);
   margin: 0 0 6px 0;
 }
 
@@ -345,4 +573,11 @@ a {
 
 .ss-detail__skeleton .ss-skeleton-line {
   height: 12px;
+}
+
+/* Responsive: filter fields stack to full width on narrow viewports */
+@media (max-width: 420px) {
+  .ss-field {
+    flex-basis: 100%;
+  }
 }

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import socket
 import ssl
 import random
 from typing import Optional
@@ -58,14 +59,29 @@ async def resolve_hostname_safe(hostname: str, timeout: float = 5.0) -> str:
             loop.getaddrinfo(hostname, 443, family=0, type=1),
             timeout=timeout
         )
-        
+
         if not results:
             raise SSRFError(f"No addresses resolved: {hostname}")
-        
-        ip = results[0][4][0]
+
+        # Prefer an IPv4 result over IPv6. getaddrinfo(family=0) returns
+        # whatever order the OS resolver picks (commonly IPv6 first, per
+        # RFC 6724, whenever the host has any IPv6 interface at all - even
+        # one with no real internet route). Pinning to that first result
+        # unconditionally meant a real, reachable IPv4 address was ignored
+        # in favor of an IPv6 address that hangs until connect-timeout in
+        # any environment where IPv6 is configured but not actually
+        # routable - confirmed against real feeds (CISA, BleepingComputer,
+        # OpenSSL, Ubuntu) that connect instantly over IPv4 via curl (which
+        # races both families) but timed out entirely through this client.
+        # This still resolves exactly once and pins to a single validated
+        # address for the whole request - SSRF/DNS-rebinding protection is
+        # unchanged, only which address family is preferred.
+        ipv4_results = [r for r in results if r[0] == socket.AF_INET]
+        chosen = ipv4_results[0] if ipv4_results else results[0]
+        ip = chosen[4][0]
         if _is_private_address(ip):
             raise SSRFError(f"Resolved to private: {hostname} → {ip}")
-        
+
         return ip
     except asyncio.TimeoutError:
         raise SSRFError(f"DNS timeout: {hostname}")

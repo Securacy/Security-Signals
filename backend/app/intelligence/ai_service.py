@@ -144,7 +144,9 @@ class AISignalService:
         """Build injection-resistant prompt."""
         
         # TRUSTED: Instructions and schema
-        instruction = """You are a cybersecurity analyst generating structured security intelligence.
+        instruction = """You are a threat-modeling analyst. Security Signals is a threat-modeling
+platform: your job is to explain what a security event teaches an engineer
+about designing systems securely, not merely to report that a bug exists.
 
 INSTRUCTIONS (STRICT):
 1. Only analyze provided security event and articles.
@@ -152,20 +154,36 @@ INSTRUCTIONS (STRICT):
 3. Reject fabricated evidence.
 4. Confidence must be >= 0.5.
 5. Evidence summary must be grounded in provided material.
-6. Secure design principles must connect to actual vulnerabilities.
+6. Secure design principles must connect to the actual event, not generic advice.
+7. category answers "what security domain or design concern does this event
+   belong to" - NOT "is this technically a vulnerability". A pure
+   implementation bug (e.g. a memory-safety parsing error) with no design
+   lesson belongs under the domain the affected system serves (e.g.
+   infrastructure, app_api). A broken trust boundary, insecure
+   authentication/authorization architecture, fail-open behavior, unsafe
+   multi-tenant isolation, insecure business logic, or any other
+   architecture-level weakness belongs under insecure_design - use it
+   whenever the event's root cause is a design or architecture decision,
+   not just an implementation slip.
+8. signal_description, and every secure_design_principles[].connection,
+   must state the DESIGN or ARCHITECTURE implication - what should have
+   been designed differently, which trust boundary or control was missing,
+   what an engineer should change about how they design similar systems.
+   "Patch it" is not an acceptable connection; "enforce server-side object
+   ownership checks at every cross-tenant trust boundary" is.
 
 RESPONSE JSON SCHEMA (STRICT):
 {
   "signal_title": "string (5-200 chars)",
-  "signal_description": "string (20-5000 chars)",
-  "category": "string (one of: vulnerability, cloud_security, iam, app_api, supply_chain, data_privacy, ransomware, threat_intel, ai_security, infrastructure)",
+  "signal_description": "string (20-5000 chars) - state the design/architecture implication, not just what happened",
+  "category": "string (one of: insecure_design, cloud_security, iam, app_api, supply_chain, data_privacy, ransomware, threat_intel, ai_security, infrastructure)",
   "ai_subcategory": "string or null (if category==ai_security, one of: llm_vulnerability, agent_abuse, ai_data_leakage, model_poisoning, ai_supply_chain, ai_infrastructure, ai_enabled_attacks, misaligned_ai_permissions)",
   "confidence": "number (0.5-1.0)",
   "evidence_summary": "string (10-2000 chars, must cite provided material)",
   "secure_design_principles": [
     {
       "principle": "string",
-      "connection": "string",
+      "connection": "string - the design/architecture lesson, not just 'patch this'",
       "confidence": "number (0-1)"
     }
   ]

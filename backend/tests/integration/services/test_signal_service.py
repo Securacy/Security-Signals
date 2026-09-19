@@ -17,7 +17,7 @@ def ai_response():
     return AISignalGenerationResponse(
         signal_title="Critical Apache RCE",
         signal_description="Critical remote code execution requiring immediate patch for Apache HTTP Server",
-        category="vulnerability",
+        category="insecure_design",
         ai_subcategory=None,
         confidence=0.95,
         evidence_summary="Apache released security update for CVE-2024-12345",
@@ -60,7 +60,7 @@ class TestSignalServiceCreation:
         assert signal.summary == ai_response.signal_description
         assert signal.ai_generated_at is not None
         assert len(signal.categories) == 1
-        assert signal.categories[0].category == SecurityCategoryType.VULNERABILITY
+        assert signal.categories[0].category == SecurityCategoryType.INSECURE_DESIGN
     
     def test_create_signal_persists_ai_principles_and_recommended_action(
         self, db: Session, security_event
@@ -73,7 +73,7 @@ class TestSignalServiceCreation:
         ai_response = AISignalGenerationResponse(
             signal_title="Critical Apache RCE",
             signal_description="Critical remote code execution requiring immediate patch for Apache HTTP Server",
-            category="vulnerability",
+            category="insecure_design",
             ai_subcategory=None,
             confidence=0.95,
             evidence_summary="Apache released security update for CVE-2024-12345",
@@ -392,3 +392,136 @@ class TestSignalServiceRetrieval:
         assert len(published) >= 1
         assert any(s.id == signal1.id for s in published)
         assert not any(s.id == signal2.id for s in published)  # signal2 still DRAFT
+
+
+class TestSignalServiceVisualGenerationWiring:
+    """Publish-time visual generation (Section 15 of the taxonomy/visuals
+    spec): SignalService.publish_signal() triggers ThreatVisualService
+    exactly once per signal, and its failure never blocks publication."""
+
+    def test_publish_triggers_visual_generation_with_a_mocked_service(
+        self, db: Session, security_event, ai_response, test_reviewer, monkeypatch,
+    ):
+        from unittest.mock import MagicMock
+        from app.db.models import SignalVisual, VisualStatus
+
+        monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "true")
+        mock_visual_service = MagicMock()
+
+        def _fake_generate(session, signal, public_categories):
+            visual = SignalVisual(signal_id=signal.id, status=VisualStatus.GENERATED, url="/media/signals/fake.png")
+            session.add(visual)
+            session.flush()
+            return visual
+
+        mock_visual_service.generate_for_signal.side_effect = _fake_generate
+
+        service = SignalService(db, visual_service=mock_visual_service)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        service.submit_for_review(signal.id)
+        service.approve_signal(signal.id, reviewer_id=test_reviewer.id)
+
+        published = service.publish_signal(signal.id)
+
+        assert published.status == SignalStatus.PUBLISHED  # publish itself succeeded
+        mock_visual_service.generate_for_signal.assert_called_once()
+        call_args = mock_visual_service.generate_for_signal.call_args
+        assert call_args[0][1].id == signal.id
+        assert call_args[0][2] == ["product_security"]  # insecure_design -> product_security
+
+        visual = db.query(SignalVisual).filter_by(signal_id=signal.id).one()
+        assert visual.status == VisualStatus.GENERATED
+
+    def test_visual_generation_failure_does_not_block_publication(
+        self, db: Session, security_event, ai_response, test_reviewer, monkeypatch,
+    ):
+        from unittest.mock import MagicMock
+
+        monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "true")
+        mock_visual_service = MagicMock()
+        mock_visual_service.generate_for_signal.side_effect = RuntimeError("simulated total visual service failure")
+
+        service = SignalService(db, visual_service=mock_visual_service)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        service.submit_for_review(signal.id)
+        service.approve_signal(signal.id, reviewer_id=test_reviewer.id)
+
+        published = service.publish_signal(signal.id)  # must not raise
+
+        assert published.status == SignalStatus.PUBLISHED
+        assert published.published_at is not None
+
+    def test_publish_queues_a_background_job_instead_of_generating_inline_when_scheduler_is_running(
+        self, db: Session, security_event, ai_response, test_reviewer, monkeypatch,
+    ):
+        """When the application's background scheduler is active, publish
+        must queue the visual job and return immediately - it must NOT
+        call the (potentially slow, real-Bedrock-backed) visual service
+        synchronously on the publish request itself."""
+        from unittest.mock import MagicMock
+        from app.scheduler.ingestion_scheduler import ingestion_scheduler
+
+        monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "true")
+        mock_visual_service = MagicMock()
+        queued_signal_ids = []
+        monkeypatch.setattr(
+            ingestion_scheduler, "schedule_visual_generation",
+            lambda signal_id: (queued_signal_ids.append(signal_id), True)[1],
+        )
+
+        service = SignalService(db, visual_service=mock_visual_service)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        service.submit_for_review(signal.id)
+        service.approve_signal(signal.id, reviewer_id=test_reviewer.id)
+
+        published = service.publish_signal(signal.id)
+
+        assert published.status == SignalStatus.PUBLISHED
+        assert queued_signal_ids == [signal.id]
+        mock_visual_service.generate_for_signal.assert_not_called()  # never run inline
+
+    def test_publish_falls_back_to_inline_generation_when_queueing_fails(
+        self, db: Session, security_event, ai_response, test_reviewer, monkeypatch,
+    ):
+        """If schedule_visual_generation reports it could not queue the
+        job (scheduler not running), publish still attempts generation
+        inline rather than silently never generating a visual at all."""
+        from unittest.mock import MagicMock
+        from app.scheduler.ingestion_scheduler import ingestion_scheduler
+
+        monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "true")
+        mock_visual_service = MagicMock()
+        monkeypatch.setattr(ingestion_scheduler, "schedule_visual_generation", lambda signal_id: False)
+
+        service = SignalService(db, visual_service=mock_visual_service)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        service.submit_for_review(signal.id)
+        service.approve_signal(signal.id, reviewer_id=test_reviewer.id)
+
+        service.publish_signal(signal.id)
+
+        mock_visual_service.generate_for_signal.assert_called_once()
+
+    def test_visual_generation_skipped_entirely_when_disabled(
+        self, db: Session, security_event, ai_response, test_reviewer, monkeypatch,
+    ):
+        from unittest.mock import MagicMock
+        from app.db.models import SignalVisual
+
+        monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "false")
+        mock_visual_service = MagicMock()
+
+        service = SignalService(db, visual_service=mock_visual_service)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        service.submit_for_review(signal.id)
+        service.approve_signal(signal.id, reviewer_id=test_reviewer.id)
+
+        service.publish_signal(signal.id)
+
+        mock_visual_service.generate_for_signal.assert_not_called()
+        assert db.query(SignalVisual).filter_by(signal_id=signal.id).one_or_none() is None

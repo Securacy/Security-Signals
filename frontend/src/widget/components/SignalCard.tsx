@@ -1,5 +1,5 @@
 import type { SignalSummary } from "../types";
-import { categoryLabel } from "../categoryLabels";
+import { CategoryIcon } from "../publicTaxonomy";
 import { formatRelativeTime } from "../formatRelativeTime";
 
 interface SignalCardProps {
@@ -15,18 +15,18 @@ export function SignalCard({ signal, onOpen }: SignalCardProps) {
       onClick={() => onOpen(signal.id)}
       aria-label={`Open signal: ${signal.title}`}
     >
-      {signal.categories.length > 0 && (
-        <div className="ss-card__chips">
-          {signal.categories.map((c) => (
-            <span className="ss-chip ss-chip--static" key={c.id}>
-              {categoryLabel(c.category)}
-            </span>
-          ))}
-        </div>
-      )}
       <h3 className="ss-card__title">{signal.title}</h3>
       <p className="ss-card__summary">{signal.summary}</p>
-      <span className="ss-card__meta">{formatRelativeTime(signal.published_at)}</span>
+      <div className="ss-card__meta-row">
+        {signal.public_categories.length > 0 && (
+          <span className="ss-card__category-icons">
+            {signal.public_categories.map((category) => (
+              <CategoryIcon key={category} category={category} />
+            ))}
+          </span>
+        )}
+        <span className="ss-card__meta">{formatRelativeTime(signal.published_at)}</span>
+      </div>
     </button>
   );
 }

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { SignalDetail as SignalDetailType } from "../types";
 import { fetchSignalDetail } from "../api";
-import { categoryLabel } from "../categoryLabels";
+import { CategoryIcon } from "../publicTaxonomy";
 import { formatRelativeTime } from "../formatRelativeTime";
 import { isSafeExternalUrl } from "../safeUrl";
 import { ErrorState } from "./ErrorState";
+import { SignalVisualBox } from "./SignalVisual";
 
 interface SignalDetailProps {
   apiBaseUrl: string;
@@ -70,18 +71,24 @@ export function SignalDetail({ apiBaseUrl, signalId, onBack }: SignalDetailProps
 
       {status === "ready" && signal && (
         <article>
-          {signal.categories.length > 0 && (
-            <div className="ss-card__chips">
-              {signal.categories.map((c) => (
-                <span className="ss-chip ss-chip--static" key={c.id}>
-                  {categoryLabel(c.category)}
-                </span>
-              ))}
-            </div>
-          )}
+          <SignalVisualBox
+            apiBaseUrl={apiBaseUrl}
+            visualStatus={signal.visual_status}
+            visualUrl={signal.visual_url}
+            fallbackCategory={signal.public_categories[0] ?? null}
+          />
 
           <h2 className="ss-detail__title">{signal.title}</h2>
-          <p className="ss-detail__meta">{formatRelativeTime(signal.published_at)}</p>
+          <div className="ss-card__meta-row">
+            <p className="ss-detail__meta">{formatRelativeTime(signal.published_at)}</p>
+            {signal.public_categories.length > 0 && (
+              <span className="ss-card__category-icons">
+                {signal.public_categories.map((category) => (
+                  <CategoryIcon key={category} category={category} />
+                ))}
+              </span>
+            )}
+          </div>
 
           <section className="ss-detail__section">
             <h3>What happened</h3>

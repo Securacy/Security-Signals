@@ -21,6 +21,19 @@ from app.db.connection import get_db
 # Ensure settings are loaded
 get_settings()
 
+
+@pytest.fixture(autouse=True)
+def _disable_real_visual_generation(monkeypatch):
+    """Keep the whole test suite deterministic and free of real Bedrock
+    image-generation calls/cost - matching the existing pattern for AI
+    search (SEARCH_AI_ENABLED) and AI signal generation (always
+    unit-tested with a mocked invoke_fn/client, never a real call from the
+    pytest suite). SignalService.publish_signal() would otherwise attempt
+    a real ThreatVisualService call on every single test that publishes a
+    signal. Real end-to-end visual-generation verification is done
+    separately, as a few sparing manual calls, not on every test run."""
+    monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "false")
+
 # Opt-in verification mode: when TEST_DB_SCHEMA_SOURCE=alembic, the `db`
 # fixture below builds its schema by running real Alembic migrations
 # instead of Base.metadata.create_all, so the full suite can be run against

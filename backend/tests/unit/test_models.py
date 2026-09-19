@@ -203,11 +203,11 @@ class TestSignalCategoryModel:
         """SignalCategory can be instantiated."""
         category = SignalCategory(
             signal_id=uuid4(),
-            category=SecurityCategoryType.VULNERABILITY,
+            category=SecurityCategoryType.INSECURE_DESIGN,
             confidence=0.95,
             assigned_by=AssignmentMethod.AI
         )
-        assert category.category == SecurityCategoryType.VULNERABILITY
+        assert category.category == SecurityCategoryType.INSECURE_DESIGN
         assert category.confidence == 0.95
 
     def test_category_repr(self):
@@ -362,7 +362,7 @@ class TestEnumDefinitions:
     def test_security_category_enum(self):
         """Test SecurityCategoryType enum (10 values)."""
         assert len(SecurityCategoryType) == 10
-        assert SecurityCategoryType.VULNERABILITY in SecurityCategoryType
+        assert SecurityCategoryType.INSECURE_DESIGN in SecurityCategoryType
         assert SecurityCategoryType.AI_SECURITY in SecurityCategoryType
 
     def test_ai_security_subcategory_enum(self):

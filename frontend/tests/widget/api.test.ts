@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchPublishedSignals, fetchSignalDetail, ApiError } from "../../src/widget/api";
+import { fetchPublishedSignals, fetchSignalDetail, searchSignals, ApiError } from "../../src/widget/api";
 
 describe("api client", () => {
   beforeEach(() => {
@@ -23,24 +23,24 @@ describe("api client", () => {
       expect(calledUrl).toContain("https://api.example.com/api/v1/signals/published");
     });
 
-    it("passes skip/limit/category as query params", async () => {
+    it("passes skip/limit/category as public_category query param", async () => {
       (fetch as any).mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
 
-      await fetchPublishedSignals("https://api.example.com", { skip: 20, limit: 5, category: "iam" });
+      await fetchPublishedSignals("https://api.example.com", { skip: 20, limit: 5, category: "cloud_identity_security" });
 
       const calledUrl = new URL((fetch as any).mock.calls[0][0] as string);
       expect(calledUrl.searchParams.get("skip")).toBe("20");
       expect(calledUrl.searchParams.get("limit")).toBe("5");
-      expect(calledUrl.searchParams.get("category")).toBe("iam");
+      expect(calledUrl.searchParams.get("public_category")).toBe("cloud_identity_security");
     });
 
-    it("omits category param when not provided", async () => {
+    it("omits public_category param when not provided", async () => {
       (fetch as any).mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
 
       await fetchPublishedSignals("https://api.example.com");
 
       const calledUrl = new URL((fetch as any).mock.calls[0][0] as string);
-      expect(calledUrl.searchParams.has("category")).toBe(false);
+      expect(calledUrl.searchParams.has("public_category")).toBe(false);
     });
 
     it("reports hasMore=true when a full page is returned", async () => {
@@ -86,6 +86,65 @@ describe("api client", () => {
       (fetch as any).mockResolvedValue({ ok: false, status: 404 });
 
       await expect(fetchSignalDetail("https://api.example.com", "missing")).rejects.toThrow(ApiError);
+    });
+  });
+
+  describe("searchSignals", () => {
+    it("calls the public search endpoint with the query as 'q'", async () => {
+      (fetch as any).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ query: "ransomware", ai_understood: false, understood_categories: [], results: [] }),
+      });
+
+      await searchSignals("https://api.example.com", { query: "recent ransomware attacks" });
+
+      const calledUrl = (fetch as any).mock.calls[0][0] as string;
+      expect(calledUrl).toContain("/api/v1/signals/search");
+      expect(calledUrl).toContain("q=recent");
+    });
+
+    it("maps ai_understood and understood_public_categories from the response", async () => {
+      (fetch as any).mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            query: "CI/CD pipeline compromise",
+            ai_understood: true,
+            understood_categories: ["supply_chain"],
+            understood_public_categories: ["supply_chain"],
+            results: [],
+          }),
+      });
+
+      const result = await searchSignals("https://api.example.com", { query: "CI/CD pipeline compromise" });
+
+      expect(result.aiUnderstood).toBe(true);
+      expect(result.understoodPublicCategories).toEqual(["supply_chain"]);
+    });
+
+    it("passes category/subcategory/sort filters as public_category alongside the query", async () => {
+      (fetch as any).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ query: "x", ai_understood: false, understood_categories: [], results: [] }),
+      });
+
+      await searchSignals("https://api.example.com", { query: "x", category: "cloud_identity_security", sort: "recent" });
+
+      const calledUrl = (fetch as any).mock.calls[0][0] as string;
+      expect(calledUrl).toContain("public_category=cloud_identity_security");
+      expect(calledUrl).toContain("sort=recent");
+    });
+
+    it("throws ApiError on a non-ok response, without exposing internals", async () => {
+      (fetch as any).mockResolvedValue({ ok: false, status: 500 });
+
+      await expect(searchSignals("https://api.example.com", { query: "x" })).rejects.toThrow(ApiError);
+    });
+
+    it("throws ApiError on a network failure (search API unavailable)", async () => {
+      (fetch as any).mockRejectedValue(new TypeError("Failed to fetch"));
+
+      await expect(searchSignals("https://api.example.com", { query: "x" })).rejects.toThrow(ApiError);
     });
   });
 });

@@ -48,3 +48,7 @@ htmlcov/
 
 # Alembic
 alembic/versions/__pycache__/
+
+# Generated per-signal threat visuals (ThreatVisualService) - real,
+# runtime-generated assets, never checked in.
+backend/media/

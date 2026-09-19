@@ -174,7 +174,7 @@ class TestModelsWithPostgreSQL:
         
         category = SignalCategory(
             signal_id=signal.id,
-            category=SecurityCategoryType.VULNERABILITY,
+            category=SecurityCategoryType.INSECURE_DESIGN,
             assigned_by=AssignmentMethod.AI
         )
         evidence = Evidence(

@@ -363,3 +363,66 @@ class TestUserDeactivation:
             json={"username": target_user.username, "password": "TargetPassword123!"},
         )
         assert r.status_code == 403
+
+
+class TestUserUniquenessEnforcedByPostgres:
+    """Confirms username/email uniqueness is a real database constraint,
+    not just an application-layer check - a raw insert that bypasses the
+    service layer entirely must still be rejected by PostgreSQL itself."""
+
+    def test_duplicate_username_rejected_at_db_level(self, db: Session, target_user):
+        from sqlalchemy.exc import IntegrityError
+
+        dupe = User(
+            username=target_user.username,  # same username, different email
+            email="a-different-email@test.local",
+            role=UserRole.VIEWER,
+            password_hash=hash_password("Str0ng!AnotherPassword"),
+            is_active=True,
+        )
+        db.add(dupe)
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+        count = db.query(User).filter_by(username=target_user.username).count()
+        assert count == 1
+
+    def test_duplicate_email_rejected_at_db_level(self, db: Session, target_user):
+        from sqlalchemy.exc import IntegrityError
+
+        dupe = User(
+            username="a-different-username",
+            email=target_user.email,  # same email, different username
+            role=UserRole.VIEWER,
+            password_hash=hash_password("Str0ng!AnotherPassword"),
+            is_active=True,
+        )
+        db.add(dupe)
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+        count = db.query(User).filter_by(email=target_user.email).count()
+        assert count == 1
+
+    def test_duplicate_via_api_does_not_expose_raw_db_error(self, client: TestClient, admin_user, target_user):
+        """The 409 response must carry a clean, generic message - never the
+        raw PostgreSQL/SQLAlchemy IntegrityError text (constraint name,
+        table name, driver internals)."""
+        r = client.post(
+            "/api/v1/users",
+            json={
+                "username": target_user.username,
+                "email": "another-new-email@test.local",
+                "role": "viewer",
+                "password": "Str0ng!AnotherPassword",
+            },
+            headers=_auth(admin_user),
+        )
+        assert r.status_code == 409
+        body_text = r.text.lower()
+        assert "integrityerror" not in body_text
+        assert "psycopg2" not in body_text
+        assert "constraint" not in body_text
+        assert "traceback" not in body_text

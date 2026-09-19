@@ -22,7 +22,7 @@ def _make_response(secure_design_principles):
     return AISignalGenerationResponse(
         signal_title="Test Signal Title",
         signal_description="A sufficiently long description of the test signal for validation purposes.",
-        category="vulnerability",
+        category="insecure_design",
         ai_subcategory=None,
         confidence=0.9,
         evidence_summary="Evidence grounded in the provided source material.",

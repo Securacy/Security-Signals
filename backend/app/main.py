@@ -3,7 +3,10 @@ FastAPI application factory.
 Entry point for uvicorn.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from app.config import get_settings
@@ -63,6 +66,21 @@ def create_app() -> FastAPI:
     # Phase 5: Analytics (monthly trends, category/principle counts)
     from app.api.routes import analytics
     app.include_router(analytics.router)
+
+    # Category/source coverage health - admin-only (Feature 2)
+    from app.api.routes import category_health
+    app.include_router(category_health.router)
+
+    # AI-assisted natural-language signal search (Feature 3)
+    from app.api.routes import search
+    app.include_router(search.router)
+
+    # Per-signal AI-generated threat visuals (ThreatVisualService writes
+    # files under settings.media_root; served statically here, read-only -
+    # no route ever accepts a client-supplied path into this directory).
+    media_root = Path(settings.media_root)
+    media_root.mkdir(parents=True, exist_ok=True)
+    app.mount(settings.media_url_prefix, StaticFiles(directory=str(media_root)), name="media")
 
     # Startup events
     @app.on_event("startup")

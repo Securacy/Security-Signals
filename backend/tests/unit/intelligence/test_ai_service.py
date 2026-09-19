@@ -17,7 +17,7 @@ class TestAIServiceGeneration:
         return {
             "signal_title": "Critical Apache RCE",
             "signal_description": "Critical remote code execution requiring immediate patch for Apache HTTP Server",
-            "category": "vulnerability",
+            "category": "insecure_design",
             "ai_subcategory": None,
             "confidence": 0.95,
             "evidence_summary": "Apache released security update for CVE-2024-12345",
@@ -82,7 +82,7 @@ class TestAIServiceGeneration:
         
         incomplete = {
             "signal_title": "Title",
-            "category": "vulnerability"
+            "category": "insecure_design"
         }
         
         with patch('app.intelligence.ai_service.Anthropic') as MockAI:
@@ -119,10 +119,39 @@ class TestAIServiceGeneration:
             mock_inst.messages.create.return_value = mock_resp
             
             service = AISignalService(api_key="test-key")
-            
+
             with pytest.raises(AISecurityError):
                 service.generate_signal(request)
-    
+
+    def test_vulnerability_category_no_longer_accepted(self):
+        """Regression: "vulnerability" was removed as a top-level category
+        (Security Signals is threat-modeling-first - a category must name a
+        security domain/design concern, not just "is this a vulnerability").
+        The AI must not be able to fall back to the old category name."""
+        from app.intelligence.schemas.signal_request import AISignalGenerationRequest
+
+        request = AISignalGenerationRequest(
+            event_id=str(uuid4()),
+            event_title="Test",
+            event_description="Test",
+        )
+
+        invalid = self.get_valid_response_dict()
+        invalid["category"] = "vulnerability"
+
+        with patch('app.intelligence.ai_service.Anthropic') as MockAI:
+            mock_inst = MagicMock()
+            MockAI.return_value = mock_inst
+
+            mock_resp = MagicMock()
+            mock_resp.content = [MagicMock(text=json.dumps(invalid))]
+            mock_inst.messages.create.return_value = mock_resp
+
+            service = AISignalService(api_key="test-key")
+
+            with pytest.raises(AISecurityError):
+                service.generate_signal(request)
+
     def test_ai_security_without_subcategory_rejected(self):
         from app.intelligence.schemas.signal_request import AISignalGenerationRequest
         
@@ -247,7 +276,7 @@ class TestAIServiceBedrockBackend:
         return {
             "signal_title": "Critical Apache RCE",
             "signal_description": "Critical remote code execution requiring immediate patch for Apache HTTP Server",
-            "category": "vulnerability",
+            "category": "insecure_design",
             "ai_subcategory": None,
             "confidence": 0.95,
             "evidence_summary": "Apache released security update for CVE-2024-12345",

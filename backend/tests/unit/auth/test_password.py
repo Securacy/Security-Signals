@@ -1,7 +1,7 @@
 """Unit tests for password hashing module."""
 
 import pytest
-from app.auth.password import hash_password, verify_password
+from app.auth.password import hash_password, verify_password, validate_password_strength
 
 
 class TestPasswordHashing:
@@ -77,6 +77,70 @@ class TestPasswordHashing:
         """Password verification is case-sensitive."""
         plain = "PasswordABC123!"
         hashed = hash_password(plain)
-        
+
         assert verify_password(plain, hashed) is True
         assert verify_password("passwordABC123!", hashed) is False
+
+
+class TestPasswordStrengthPolicy:
+    """Account-creation password policy: 12+ chars, upper/lower/digit/
+    special, no leading/trailing whitespace, not identical to username.
+    Enforced by UserService.create_user, separate from hash_password's own
+    minimal check (preserved unchanged for backward compatibility)."""
+
+    def test_strong_valid_password_accepted(self):
+        """Must not raise for a password satisfying every rule."""
+        validate_password_strength("Str0ng!Passw0rd", username="someuser")
+
+    def test_password_under_12_chars_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Sh0rt!Pw")
+        assert "12 characters" in str(exc.value)
+
+    def test_password_exactly_12_chars_accepted(self):
+        assert len("Str0ngPw!Abc") == 12
+        validate_password_strength("Str0ngPw!Abc")
+
+    def test_missing_uppercase_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("str0ng!password")
+        assert "uppercase" in str(exc.value).lower()
+
+    def test_missing_lowercase_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("STR0NG!PASSWORD")
+        assert "lowercase" in str(exc.value).lower()
+
+    def test_missing_number_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Strong!Password")
+        assert "number" in str(exc.value).lower()
+
+    def test_missing_special_character_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Str0ngPassword12")
+        assert "special character" in str(exc.value).lower()
+
+    def test_leading_whitespace_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength(" Str0ng!Password")
+        assert "whitespace" in str(exc.value).lower()
+
+    def test_trailing_whitespace_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Str0ng!Password ")
+        assert "whitespace" in str(exc.value).lower()
+
+    def test_password_identical_to_username_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Str0ng!Userxx", username="Str0ng!Userxx")
+        assert "username" in str(exc.value).lower()
+
+    def test_password_identical_to_username_case_insensitive_rejected(self):
+        with pytest.raises(ValueError):
+            validate_password_strength("str0ng!userxx", username="STR0NG!USERXX")
+
+    def test_no_username_provided_skips_username_check(self):
+        """When no username is supplied (e.g. a standalone policy check),
+        the identical-to-username rule simply doesn't apply."""
+        validate_password_strength("Str0ng!Password")

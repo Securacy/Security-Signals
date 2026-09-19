@@ -176,6 +176,107 @@ class TestIngestionJobFailureIsolation:
         mock_session.close.assert_called_once()
 
 
+class TestScheduleVisualGeneration:
+    """Publishing a signal must never block on the real Bedrock call - the
+    visual job is queued on this same shared scheduler instead."""
+
+    @pytest.mark.asyncio
+    async def test_queues_a_run_once_job_when_scheduler_is_running(self):
+        from uuid import uuid4
+        from app.scheduler.visual_generation_job import run_visual_generation_job
+
+        scheduler = IngestionScheduler()
+        try:
+            scheduler.start()
+            signal_id = uuid4()
+
+            queued = scheduler.schedule_visual_generation(signal_id)
+
+            assert queued is True
+            job = scheduler._scheduler.get_job(f"visual_generation_{signal_id}")
+            assert job is not None
+            assert job.func is run_visual_generation_job
+            assert job.args == (signal_id,)
+        finally:
+            scheduler.shutdown(wait=False)
+            await asyncio.sleep(0)
+
+    def test_returns_false_when_scheduler_not_running(self):
+        from uuid import uuid4
+
+        scheduler = IngestionScheduler()  # never started
+        assert scheduler.schedule_visual_generation(uuid4()) is False
+
+    @pytest.mark.asyncio
+    async def test_requeueing_the_same_signal_replaces_rather_than_duplicates(self):
+        from uuid import uuid4
+
+        scheduler = IngestionScheduler()
+        try:
+            scheduler.start()
+            signal_id = uuid4()
+
+            scheduler.schedule_visual_generation(signal_id)
+            scheduler.schedule_visual_generation(signal_id)
+
+            jobs = [j for j in scheduler._scheduler.get_jobs() if j.id == f"visual_generation_{signal_id}"]
+            assert len(jobs) == 1
+        finally:
+            scheduler.shutdown(wait=False)
+            await asyncio.sleep(0)
+
+
+class TestVisualGenerationJobBody:
+    """app.scheduler.visual_generation_job - the actual job body, run in a
+    background thread with its own DB session."""
+
+    @pytest.mark.asyncio
+    async def test_run_visual_generation_job_offloads_to_a_thread_and_never_raises(self):
+        from app.scheduler import visual_generation_job
+
+        called_with = []
+        with patch.object(visual_generation_job, "_generate_visual_sync", side_effect=lambda sid: called_with.append(sid)):
+            await visual_generation_job.run_visual_generation_job("fake-signal-id")
+
+        assert called_with == ["fake-signal-id"]
+
+    @pytest.mark.asyncio
+    async def test_run_visual_generation_job_swallows_executor_failures(self):
+        from app.scheduler import visual_generation_job
+
+        with patch.object(visual_generation_job, "_generate_visual_sync", side_effect=RuntimeError("boom")):
+            await visual_generation_job.run_visual_generation_job("fake-signal-id")  # must not raise
+
+    def test_generate_visual_sync_does_nothing_for_a_missing_signal(self):
+        from unittest.mock import MagicMock
+        from app.scheduler import visual_generation_job
+
+        mock_session = MagicMock()
+        mock_session.query.return_value.filter_by.return_value.one_or_none.return_value = None
+
+        with patch.object(visual_generation_job, "SessionLocal", return_value=mock_session):
+            visual_generation_job._generate_visual_sync("nonexistent-signal-id")  # must not raise
+
+        mock_session.close.assert_called_once()
+
+    def test_generate_visual_sync_never_raises_on_service_failure(self):
+        from unittest.mock import MagicMock, patch as mock_patch
+        from app.scheduler import visual_generation_job
+
+        mock_session = MagicMock()
+        mock_signal = MagicMock()
+        mock_session.query.return_value.filter_by.return_value.one_or_none.return_value = mock_signal
+        mock_session.query.return_value.filter_by.return_value.all.return_value = []
+
+        with patch.object(visual_generation_job, "SessionLocal", return_value=mock_session):
+            with mock_patch("app.intelligence.visual_service.ThreatVisualService.from_settings") as mock_from_settings:
+                mock_from_settings.return_value.generate_for_signal.side_effect = RuntimeError("provider down")
+                visual_generation_job._generate_visual_sync(mock_signal.id)  # must not raise
+
+        mock_session.rollback.assert_called_once()
+        mock_session.close.assert_called_once()
+
+
 def _async_return(value):
     async def _inner(*args, **kwargs):
         return value

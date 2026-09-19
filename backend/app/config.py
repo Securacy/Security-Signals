@@ -78,6 +78,42 @@ class Settings(BaseSettings):
     ingestion_max_retries: int = 3
     ingestion_max_response_size_mb: int = 10
 
+    # Freshness / current-feed policy (centralized - see
+    # app/ingestion/freshness_policy.py for the functions that consume
+    # these; nothing else should hardcode these numbers).
+    #
+    # freshness_grace_hours: how far before a source's last successful
+    # checkpoint an entry's published time may still fall and count as
+    # "new" - absorbs clock skew and delayed RSS publication.
+    # max_current_signals_per_category: how many PUBLISHED signals stay
+    # "current" (publicly visible) per category at once; publishing beyond
+    # this retires the oldest current ones to historical - never deletes
+    # them, and only ever happens as a side effect of a NEW signal actually
+    # being published (see SignalService.publish_signal).
+    freshness_grace_hours: int = Field(default=6)
+    max_current_signals_per_category: int = Field(default=3)
+
+    # AI-assisted natural-language search (Feature 3). A separate prompt/
+    # service from signal generation - see app/intelligence/search_service.py.
+    # Disabling this flag (or any runtime failure/timeout) falls back to
+    # deterministic keyword search rather than breaking the public feed.
+    search_ai_enabled: bool = Field(default=True)
+    search_max_query_length: int = Field(default=300)
+    search_candidate_limit: int = Field(default=50)
+    search_ai_timeout_seconds: int = Field(default=8)
+    search_rate_limit: str = Field(default="20/minute")
+
+    # Per-signal AI-generated threat visuals (ThreatVisualService). Uses
+    # the same AWS Bedrock account/region/credentials already configured
+    # above for Claude - no separate provider credentials. Disabling this
+    # flag (or any generation failure/timeout) never blocks signal
+    # publication; the frontend falls back to a static category icon.
+    visual_generation_enabled: bool = Field(default=True)
+    bedrock_image_model_id: str = Field(default="amazon.nova-canvas-v1:0")
+    visual_generation_timeout_seconds: int = Field(default=30)
+    media_root: str = Field(default="media")
+    media_url_prefix: str = Field(default="/media")
+
     # Scheduler (Phase 4): weekly automated ingestion. Defaults on for
     # normal operation; the app's test suite never triggers FastAPI's
     # startup event (TestClient(app) isn't used as a context manager here),
@@ -85,6 +121,13 @@ class Settings(BaseSettings):
     # this flag exists for explicit operational control (e.g. running one
     # API instance with scheduling disabled behind a separate cron/worker).
     scheduler_enabled: bool = Field(default=True)
+
+    # Demo/development-only seed accounts (see app/services/demo_seed_service.py).
+    # Never given a fallback value here - seeding refuses to run at all if
+    # either is unset, rather than falling back to a predictable password.
+    # SecretStr keeps the raw value out of repr()/str()/logs.
+    demo_admin_password: Optional[SecretStr] = Field(default=None, alias="DEMO_ADMIN_PASSWORD")
+    demo_reviewer_password: Optional[SecretStr] = Field(default=None, alias="DEMO_REVIEWER_PASSWORD")
 
     # Logging
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")

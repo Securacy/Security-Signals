@@ -74,7 +74,7 @@ def ai_response() -> AISignalGenerationResponse:
     return AISignalGenerationResponse(
         signal_title="Audit API Test Signal",
         signal_description="Comprehensive security signal description covering vulnerability analysis and remediation steps for system hardening.",
-        category="vulnerability",
+        category="insecure_design",
         confidence=0.8,
         evidence_summary="Evidence discovered in security audit.",
         secure_design_principles=[],

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import User, UserRole
 from app.repositories import UserRepository, AuditLogRepository
-from app.auth.password import hash_password
+from app.auth.password import hash_password, validate_password_strength
 from app.common.errors import NotFoundError, DatabaseError
 
 logger = logging.getLogger(__name__)
@@ -68,10 +68,12 @@ class UserService:
         The plaintext password is hashed before storage and never audited.
 
         Raises:
-            ValueError: If the password fails policy (e.g. too short).
+            ValueError: If the password fails policy (length, complexity,
+                whitespace, or matches the username).
             UniqueConstraintError: If username or email already exists.
             DatabaseError: If the database operation fails.
         """
+        validate_password_strength(password, username=username)
         password_hash = hash_password(password)
 
         user = self.user_repo.create(

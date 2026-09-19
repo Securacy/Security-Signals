@@ -73,17 +73,30 @@ def postgres_engine():
              a dedicated, disposable test database only.
     
     CLEANUP: Resets database to clean state before each test by dropping
-             all tables (including alembic_version table) to ensure
-             migrations start fresh.
+             all tables (including alembic_version table) AND all custom
+             enum types, so migrations start truly fresh each test.
+
+             Dropping only tables is not enough: a migration that recreates
+             an enum type (rename old -> create new -> drop old, the only
+             way to remove a Postgres enum label - see migration 012) can
+             leave the *final* recreated type behind after its owning
+             table is dropped. The next test's from-scratch migration run
+             then hits SQLAlchemy's ENUM.create(checkfirst=True), which
+             silently no-ops because a type by that name already exists -
+             except it's the previous test's *final* version of the type,
+             missing whatever labels a later migration in this run expects
+             to still be present (e.g. the pre-migration-012 'VULNERABILITY'
+             label). Dropping the types here guarantees each test's
+             migration chain really starts from nothing.
     """
     test_url = os.getenv("DATABASE_URL_TEST")
     if not test_url:
         pytest.skip("DATABASE_URL_TEST not set")
     if "postgresql" not in test_url:
         pytest.skip("DATABASE_URL_TEST does not point to PostgreSQL")
-    
+
     engine = sa.create_engine(test_url)
-    
+
     # Reset database to clean state: drop all tables
     # This includes alembic_version, so migration starts fresh each test
     with engine.begin() as conn:
@@ -91,6 +104,7 @@ def postgres_engine():
         conn.execute(text("""
             DROP TABLE IF EXISTS audit_log CASCADE;
             DROP TABLE IF EXISTS evidence CASCADE;
+            DROP TABLE IF EXISTS signal_visual CASCADE;
             DROP TABLE IF EXISTS signal_category CASCADE;
             DROP TABLE IF EXISTS signal CASCADE;
             DROP TABLE IF EXISTS event_article_mapping CASCADE;
@@ -99,6 +113,21 @@ def postgres_engine():
             DROP TABLE IF EXISTS "user" CASCADE;
             DROP TABLE IF EXISTS source CASCADE;
             DROP TABLE IF EXISTS alembic_version CASCADE;
+        """))
+        # Drop every custom enum type migrations create, including any
+        # transient rename used while swapping a type's value set.
+        conn.execute(text("""
+            DROP TYPE IF EXISTS security_category_enum CASCADE;
+            DROP TYPE IF EXISTS security_category_enum_old CASCADE;
+            DROP TYPE IF EXISTS security_category_enum_new CASCADE;
+            DROP TYPE IF EXISTS ai_security_subcategory_enum CASCADE;
+            DROP TYPE IF EXISTS assignment_method_enum CASCADE;
+            DROP TYPE IF EXISTS event_severity_enum CASCADE;
+            DROP TYPE IF EXISTS event_type_enum CASCADE;
+            DROP TYPE IF EXISTS signal_status_enum CASCADE;
+            DROP TYPE IF EXISTS source_type_enum CASCADE;
+            DROP TYPE IF EXISTS user_role_enum CASCADE;
+            DROP TYPE IF EXISTS visual_status_enum CASCADE;
         """))
     
     yield engine

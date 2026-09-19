@@ -45,7 +45,7 @@ class AISignalGenerationResponse(BaseModel):
     def validate_category(cls, v):
         """Validate against allowed categories."""
         allowed = {
-            'vulnerability', 'cloud_security', 'iam', 'app_api', 'supply_chain',
+            'insecure_design', 'cloud_security', 'iam', 'app_api', 'supply_chain',
             'data_privacy', 'ransomware', 'threat_intel', 'ai_security', 'infrastructure'
         }
         if v.lower() not in allowed:

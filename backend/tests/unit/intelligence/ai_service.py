@@ -61,7 +61,7 @@ class TestAISignalResponseValidation:
         resp = AISignalGenerationResponse(
             signal_title="Critical Apache RCE",
             signal_description="Apache HTTP Server RCE vulnerability requires immediate patching",
-            category="vulnerability",
+            category="insecure_design",
             ai_subcategory=None,
             confidence=0.95,
             evidence_summary="Apache released patch for CVE-2024-5678",
@@ -73,7 +73,7 @@ class TestAISignalResponseValidation:
                 )
             ]
         )
-        assert resp.category == "vulnerability"
+        assert resp.category == "insecure_design"
         assert resp.confidence == 0.95
         assert len(resp.secure_design_principles) == 1
     
@@ -94,7 +94,7 @@ class TestAISignalResponseValidation:
     def test_valid_all_categories(self):
         """Test all valid categories."""
         categories = [
-            "vulnerability", "cloud_security", "iam", "app_api", "supply_chain",
+            "insecure_design", "cloud_security", "iam", "app_api", "supply_chain",
             "data_privacy", "ransomware", "threat_intel", "ai_security", "infrastructure"
         ]
         
@@ -174,7 +174,7 @@ class TestAISignalResponseValidation:
             AISignalGenerationResponse(
                 signal_title="Title",
                 signal_description="Desc",
-                category="vulnerability",
+                category="insecure_design",
                 ai_subcategory="llm_vulnerability",
                 confidence=0.85,
                 evidence_summary="Evidence",
@@ -187,7 +187,7 @@ class TestAISignalResponseValidation:
             AISignalGenerationResponse(
                 signal_title="Title",
                 signal_description="Desc",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.4,
                 evidence_summary="Evidence",
                 secure_design_principles=[]
@@ -198,7 +198,7 @@ class TestAISignalResponseValidation:
         resp = AISignalGenerationResponse(
             signal_title="Title",
             signal_description="Description",
-            category="vulnerability",
+            category="insecure_design",
             confidence=1.0,
             evidence_summary="Evidence",
             secure_design_principles=[]
@@ -211,7 +211,7 @@ class TestAISignalResponseValidation:
             AISignalGenerationResponse(
                 signal_title="Bad",
                 signal_description="Desc",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Evidence",
                 secure_design_principles=[]
@@ -223,7 +223,7 @@ class TestAISignalResponseValidation:
             AISignalGenerationResponse(
                 signal_title="Valid Title",
                 signal_description="Too short",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Evidence",
                 secure_design_principles=[]
@@ -235,7 +235,7 @@ class TestAISignalResponseValidation:
             AISignalGenerationResponse(
                 signal_title="Valid Title",
                 signal_description="Valid description here",
-                category="vulnerability",
+                category="insecure_design",
                 confidence=0.85,
                 evidence_summary="Short",
                 secure_design_principles=[]

@@ -9,8 +9,56 @@ Phase 6: Implements secure password storage.
 
 import bcrypt
 import logging
+import string
+from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+_MIN_PASSWORD_LENGTH = 12
+_SPECIAL_CHARACTERS = set(string.punctuation)
+
+
+def validate_password_strength(password: str, username: Optional[str] = None) -> None:
+    """
+    Enforce the account-creation password policy:
+      - minimum 12 characters
+      - at least 1 uppercase letter
+      - at least 1 lowercase letter
+      - at least 1 digit
+      - at least 1 special character
+      - no leading/trailing whitespace
+      - must not be identical to the username (case-insensitive)
+
+    This is deliberately separate from hash_password()'s own minimal check
+    (kept as-is for backward compatibility with direct callers) - this is
+    the policy enforced at account-creation time, called from
+    UserService.create_user so every creation path (the admin API and the
+    demo-user seed script) goes through the same rule set.
+
+    Raises:
+        ValueError: with a message describing the specific rule violated.
+            Never includes the password value itself.
+    """
+    if password != password.strip():
+        raise ValueError("Password must not have leading or trailing whitespace")
+
+    if len(password) < _MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {_MIN_PASSWORD_LENGTH} characters")
+
+    if not any(c.isupper() for c in password):
+        raise ValueError("Password must contain at least one uppercase letter")
+
+    if not any(c.islower() for c in password):
+        raise ValueError("Password must contain at least one lowercase letter")
+
+    if not any(c.isdigit() for c in password):
+        raise ValueError("Password must contain at least one number")
+
+    if not any(c in _SPECIAL_CHARACTERS for c in password):
+        raise ValueError("Password must contain at least one special character")
+
+    if username is not None and password.lower() == username.lower():
+        raise ValueError("Password must not be identical to the username")
 
 
 def hash_password(plain_password: str) -> str:

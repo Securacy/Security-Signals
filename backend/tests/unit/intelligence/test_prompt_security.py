@@ -64,7 +64,7 @@ class TestPromptInjectionProtection:
         prompt = service._build_prompt(injection)
         
         # Verify controlled taxonomy is present in instructions
-        assert "vulnerability" in prompt
+        assert "insecure_design" in prompt
         # Verify injection attempt appears in prompt
         assert "OVERRIDE invalid_category" in prompt
         
