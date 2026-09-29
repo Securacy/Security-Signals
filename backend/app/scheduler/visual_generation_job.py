@@ -76,3 +76,13 @@ async def run_visual_generation_job(signal_id: UUID) -> None:
         # is only reachable for something going wrong in the executor
         # plumbing itself.
         logger.warning(f"visual_generation_job_executor_failed signal_id={signal_id} error={e}")
+
+
+def submit_visual_generation_in_background(signal_id: UUID) -> None:
+    """Fire-and-forget fallback for when the application's APScheduler is
+    not running in this process (e.g. a one-off script that creates
+    signals): hands the SAME job body the scheduler would have run to this
+    module's small worker pool and returns immediately. Never blocks the
+    caller (in particular never the ingestion loop) on the image provider,
+    and never raises - _generate_visual_sync catches and logs everything."""
+    _EXECUTOR.submit(_generate_visual_sync, signal_id)

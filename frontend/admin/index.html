@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Security Signals — Admin</title>
+    <!--
+      Unlike index.html (the public widget, meant only to be iframed), this
+      is a normal top-level application page - no noindex/frame-only
+      posture here.
+    -->
+    <script>
+      // Resolve the appearance preference (light/dark/system) and set it on
+      // <html> BEFORE first paint, so there's no flash of the wrong theme
+      // while React mounts. Kept intentionally tiny and dependency-free -
+      // ThemeContext (src/admin/theme.tsx) re-reads/re-applies the same
+      // logic once the app is running, this is purely an anti-flash step.
+      (function () {
+        try {
+          var pref = localStorage.getItem("ss-admin-theme");
+          var resolved =
+            pref === "light" || pref === "dark"
+              ? pref
+              : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", resolved);
+        } catch (e) {
+          // localStorage/matchMedia unavailable - default light applies via CSS.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/admin/main.tsx"></script>
+  </body>
+</html>

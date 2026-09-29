@@ -23,6 +23,21 @@ get_settings()
 
 
 @pytest.fixture(autouse=True)
+def _isolate_entra_configuration(monkeypatch):
+    """A developer's real backend/.env may enable Microsoft Entra with a real
+    tenant, client ID and secret. The test suite must never see (or depend
+    on) any of that: force Entra off and blank every ENTRA_* value by
+    default (environment variables outrank .env). Tests that exercise the
+    Entra flow opt in explicitly with FAKE values via the `entra_settings`
+    fixture in tests/entra_support.py, and mock every Microsoft network
+    call - nothing in the suite touches live Entra."""
+    monkeypatch.setenv("ENTRA_ENABLED", "false")
+    for name in ("ENTRA_TENANT_ID", "ENTRA_CLIENT_ID", "ENTRA_CLIENT_SECRET"):
+        monkeypatch.setenv(name, "")
+    monkeypatch.setenv("LOCAL_LOGIN_ENABLED", "true")
+
+
+@pytest.fixture(autouse=True)
 def _disable_real_visual_generation(monkeypatch):
     """Keep the whole test suite deterministic and free of real Bedrock
     image-generation calls/cost - matching the existing pattern for AI

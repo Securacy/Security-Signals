@@ -207,12 +207,60 @@ a {
   padding: 8px 10px;
   font-size: 0.875rem;
   width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ss-input:focus-visible,
 .ss-select:focus-visible {
   outline: var(--ss-focus-ring);
   outline-offset: 1px;
+}
+
+.ss-input:hover,
+.ss-select:hover {
+  border-color: var(--ss-accent);
+}
+
+/* Search field: icon + input + optional in-progress spinner, all in one
+ * intentional-feeling control rather than a bare <input> (Section 3.3). */
+.ss-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ss-search-field__icon {
+  position: absolute;
+  left: 11px;
+  width: 16px;
+  height: 16px;
+  color: var(--ss-text-muted);
+  pointer-events: none;
+}
+
+.ss-search-field__input {
+  padding-left: 34px;
+  padding-right: 34px;
+}
+
+.ss-search-field__input:focus-visible {
+  border-color: var(--ss-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ss-accent) 25%, transparent);
+}
+
+.ss-search-field__spinner {
+  position: absolute;
+  right: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--ss-accent-strong);
+  animation: ss-spin 0.7s linear infinite;
+}
+
+@keyframes ss-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .ss-button--clear {
@@ -242,18 +290,20 @@ a {
   background: var(--ss-surface);
   border: 1px solid var(--ss-border);
   border-radius: var(--ss-radius);
-  padding: 14px 16px;
+  padding: 16px 18px;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
   transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ss-card:hover {
   border-color: var(--ss-accent);
-  box-shadow: 0 0 0 1px var(--ss-accent) inset;
+  box-shadow: 0 8px 20px -8px rgba(168, 85, 247, 0.35), 0 0 0 1px var(--ss-accent) inset;
+  transform: translateY(-1px);
 }
 
 .ss-card:active {
-  transform: scale(0.99);
+  transform: translateY(0) scale(0.99);
 }
 
 .ss-card__chips {
@@ -264,14 +314,17 @@ a {
 }
 
 .ss-card__title {
-  margin: 0 0 6px 0;
-  font-size: 0.9375rem;
-  font-weight: 600;
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
 }
 
 .ss-card__summary {
-  margin: 0 0 8px 0;
+  margin: 0 0 14px 0;
   font-size: 0.8125rem;
+  line-height: 1.55;
   color: var(--ss-text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -297,6 +350,15 @@ a {
   justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* Subtle hairline separating the summary from the footer metadata row -
+ * scoped to cards only (SignalDetail reuses .ss-card__meta-row for its
+ * own header, right under the title, where a divider wouldn't make
+ * sense). Keeps the split "calm" rather than a heavy rule. */
+.ss-card .ss-card__meta-row {
+  padding-top: 12px;
+  border-top: 1px solid var(--ss-border);
 }
 
 .ss-card__meta {
@@ -516,9 +578,9 @@ a {
 .ss-search-understood {
   margin: 0 0 12px;
   padding: 8px 12px;
-  border-radius: 6px;
-  background: var(--ss-accent-soft, rgba(94, 234, 212, 0.08));
-  border: 1px solid var(--ss-accent-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ss-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ss-accent) 45%, transparent);
   color: var(--ss-text-muted);
   font-size: 0.8125rem;
 }
@@ -530,36 +592,55 @@ a {
   border: none;
   cursor: pointer;
   color: var(--ss-accent-strong);
-  padding: 0 0 16px 0;
+  padding: 4px 0 16px 0;
   font-size: 0.875rem;
+  font-weight: 600;
+  transition: opacity 0.15s ease;
+}
+
+.ss-back-button:hover {
+  opacity: 0.75;
 }
 
 .ss-detail__title {
-  font-size: 1.125rem;
-  margin: 0 0 4px 0;
+  font-size: 1.3125rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin: 0 0 10px 0;
+}
+
+.ss-detail__meta-row {
+  margin-bottom: 18px;
 }
 
 .ss-detail__meta {
   color: var(--ss-text-muted);
   font-size: 0.75rem;
-  margin: 0 0 20px 0;
+  margin: 0;
 }
 
 .ss-detail__section {
-  margin-bottom: 20px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  background: var(--ss-surface);
+  border: 1px solid var(--ss-border);
+  border-radius: var(--ss-radius);
 }
 
 .ss-detail__section h3 {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--ss-accent-strong);
-  margin: 0 0 6px 0;
+  margin: 0 0 8px 0;
 }
 
 .ss-detail__section p {
   margin: 0;
   font-size: 0.9375rem;
+  line-height: 1.6;
 }
 
 .ss-evidence-list {
@@ -569,6 +650,16 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.ss-evidence-list a {
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ss-accent-strong) 40%, transparent);
+  transition: border-color 0.15s ease;
+}
+
+.ss-evidence-list a:hover {
+  border-color: var(--ss-accent-strong);
 }
 
 .ss-detail__skeleton .ss-skeleton-line {

@@ -520,6 +520,13 @@ class UserRepository(BaseRepository):
         except Exception as e:
             raise DatabaseError(f"Error fetching user by username: {e}")
 
+    def get_by_entra_object_id(self, entra_object_id: str) -> Optional[User]:
+        """Get user by Microsoft Entra object ID (the permanent Entra identity key)."""
+        try:
+            return self.session.query(User).filter(User.entra_object_id == entra_object_id).one_or_none()
+        except Exception as e:
+            raise DatabaseError(f"Error fetching user by Entra object ID: {e}")
+
     def get_by_email(self, email: str) -> Optional[User]:
         """Get user by email."""
         try:
@@ -535,6 +542,16 @@ class UserRepository(BaseRepository):
             ).offset(skip).limit(limit).all()
         except Exception as e:
             raise DatabaseError(f"Error fetching active users: {e}")
+
+    def get_inactive_users(self, skip: int = 0, limit: int = 100) -> List[User]:
+        """Get all deactivated (is_active=False) users - candidates for the
+        permanent-removal path in UserService.purge_inactive_user."""
+        try:
+            return self.session.query(User).filter(
+                User.is_active == False
+            ).offset(skip).limit(limit).all()
+        except Exception as e:
+            raise DatabaseError(f"Error fetching inactive users: {e}")
 
     def get_by_role(self, role: str, skip: int = 0, limit: int = 100) -> List[User]:
         """Get users by role."""

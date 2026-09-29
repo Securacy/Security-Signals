@@ -29,27 +29,36 @@ def create_access_token(
     user_id: UUID,
     username: str,
     role: str,
-    expires_in_hours: Optional[int] = None
+    expires_in_hours: Optional[int] = None,
+    password_changed_at: Optional[datetime] = None,
 ) -> str:
     """
     Create a JWT access token.
-    
+
     Payload includes:
     - sub (user_id): Subject (user)
     - username: User's username
     - role: User's role (admin, reviewer, viewer)
     - exp: Expiration time (UTC)
     - iat: Issued at time (UTC)
-    
+    - pwd_ver: password-version marker (see below)
+
     Args:
         user_id: User UUID
         username: User's username
         role: User's role
         expires_in_hours: Override default expiration (for testing)
-    
+        password_changed_at: The user's current User.password_changed_at
+            (None if never set). Embedded as `pwd_ver` so a later password
+            change - self-service or admin reset - invalidates every token
+            issued before it: get_current_user rejects a token whose
+            pwd_ver doesn't match the user's current column value. This
+            reuses the User row already fetched on every authenticated
+            request, so it costs nothing extra.
+
     Returns:
         Signed JWT token (string)
-    
+
     Raises:
         AuthenticationError: If token creation fails
     """
@@ -57,13 +66,14 @@ def create_access_token(
         now = datetime.now(timezone.utc)
         expires_in = expires_in_hours or settings.jwt_expiration_hours
         expire_at = now + timedelta(hours=expires_in)
-        
+
         payload = {
             "sub": str(user_id),
             "username": username,
             "role": role,
             "iat": int(now.timestamp()),
             "exp": int(expire_at.timestamp()),
+            "pwd_ver": int(password_changed_at.timestamp()) if password_changed_at else 0,
         }
         
         token = jwt.encode(

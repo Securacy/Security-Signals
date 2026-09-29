@@ -15,3 +15,5 @@ apscheduler==3.10.4
 passlib==1.7.4
 slowapi==0.1.9
 structlog==23.2.0
+PyJWT>=2.8.0
+cryptography>=42.0.0

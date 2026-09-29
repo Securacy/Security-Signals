@@ -7,6 +7,7 @@ Phase 6: Protected endpoints for draft/in-review signal management + authenticat
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from uuid import UUID
 import logging
@@ -22,6 +23,46 @@ from app.taxonomy import UnknownPublicCategoryError, internal_categories_to_publ
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/signals", tags=["signals"])
+
+
+def _visual_fields_by_signal(db: Session, signal_ids: list) -> dict:
+    """Visual state for the admin review lists: signal_id -> the fields
+    added to each /draft and /approved item. Read-only - never triggers
+    generation. A signal with no SignalVisual row at all (persisted before
+    visuals were generated at DRAFT time, or with generation disabled)
+    reports "none" - distinct from "pending", which means generation has
+    genuinely been queued."""
+    if not signal_ids:
+        return {}
+    rows = db.query(SignalVisual).filter(SignalVisual.signal_id.in_(signal_ids)).all()
+    return {
+        row.signal_id: {
+            "visual_status": row.status.value,
+            "visual_url": row.url if row.status == VisualStatus.GENERATED else None,
+            "visual_requested_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    }
+
+
+_NO_VISUAL = {"visual_status": "none", "visual_url": None, "visual_requested_at": None}
+
+
+def _categories_by_signal(db: Session, signal_ids: list) -> dict:
+    """Shared category lookup for list endpoints - same pattern
+    list_published_signals already uses, extracted so /draft and /approved
+    (admin review queue) can reuse it instead of duplicating the loop."""
+    category_repo = SignalCategoryRepository(db)
+    categories_by_signal: dict = {}
+    for cat in category_repo.get_by_signal_ids(signal_ids):
+        categories_by_signal.setdefault(cat.signal_id, []).append(
+            {
+                "id": str(cat.id),
+                "category": cat.category.value if hasattr(cat.category, "value") else cat.category,
+                "subcategory": cat.subcategory,
+            }
+        )
+    return categories_by_signal
 
 
 # Phase 5: Public endpoints - RESTORED WITH FULL CONTRACTS
@@ -76,22 +117,13 @@ def list_published_signals(
         category = None  # public_category takes precedence
 
     signal_repo = SignalRepository(db)
-    category_repo = SignalCategoryRepository(db)
 
     signals = signal_repo.get_published(
         skip=skip, limit=limit, category=category, categories=internal_categories,
         subcategory=subcategory, search=search, sort=sort,
     )
 
-    categories_by_signal = {}
-    for cat in category_repo.get_by_signal_ids([sig.id for sig in signals]):
-        categories_by_signal.setdefault(cat.signal_id, []).append(
-            {
-                "id": str(cat.id),
-                "category": cat.category.value if hasattr(cat.category, "value") else cat.category,
-                "subcategory": cat.subcategory,
-            }
-        )
+    categories_by_signal = _categories_by_signal(db, [sig.id for sig in signals])
 
     return [
         {
@@ -189,7 +221,13 @@ def get_published_signal(
         "evidence": evidence_data,
         "categories": categories_data,
         "public_categories": internal_categories_to_public(c["category"] for c in categories_data),
-        "visual_status": visual.status.value if visual else VisualStatus.PENDING.value,
+        # No SignalVisual row at all means this signal predates the visual-
+        # generation feature (see SignalVisual's docstring) - "pending"
+        # would wrongly imply a generation job is queued and will finish;
+        # it never was and never will be. "none" matches the same
+        # legacy-vs-queued distinction every admin route already makes
+        # (see _NO_VISUAL above).
+        "visual_status": visual.status.value if visual else "none",
         "visual_url": visual.url if visual and visual.status == VisualStatus.GENERATED else None,
     }
 
@@ -201,30 +239,33 @@ def list_draft_signals(
     db: Session = Depends(get_db)
 ):
     """List DRAFT and IN_REVIEW signals - PROTECTED (REVIEWER/ADMIN only).
-    
+
     Only users with REVIEWER or ADMIN role can access this endpoint.
-    
+
     Args:
         current_user: Authenticated user (required)
         db: Database session
-    
+
     Returns:
         List of draft and in-review signals
-    
+
     Raises:
         HTTPException 401: If not authenticated
         HTTPException 403: If user does not have REVIEWER role
     """
     signal_repo = SignalRepository(db)
-    
+
     # Get both DRAFT and IN_REVIEW signals
     draft_signals = signal_repo.get_by_status(SignalStatus.DRAFT)
     review_signals = signal_repo.get_by_status(SignalStatus.IN_REVIEW)
-    
+
     all_signals = draft_signals + review_signals
-    
+
     logger.info(f"list_draft_signals: user={current_user.username}, role={current_user.role.value}, count={len(all_signals)}")
-    
+
+    categories_by_signal = _categories_by_signal(db, [sig.id for sig in all_signals])
+    visuals_by_signal = _visual_fields_by_signal(db, [sig.id for sig in all_signals])
+
     return [
         {
             "id": str(sig.id),
@@ -236,9 +277,175 @@ def list_draft_signals(
             "recommended_action": sig.recommended_action,
             "created_at": sig.created_at.isoformat() if sig.created_at else None,
             "reviewed_by": str(sig.reviewed_by) if sig.reviewed_by else None,
+            "categories": categories_by_signal.get(sig.id, []),
+            **visuals_by_signal.get(sig.id, _NO_VISUAL),
         }
         for sig in all_signals
     ]
+
+
+@router.get("/approved", response_model=list)
+def list_approved_signals(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """List APPROVED signals awaiting publish - PROTECTED (ADMIN only).
+
+    Reviewers move a signal from IN_REVIEW to APPROVED via /approve, but
+    publishing (the public-facing gate) is admin-only - this is the
+    admin-only counterpart to /draft that surfaces what's sitting in that
+    approved-but-not-yet-published state, so the "ready to publish" queue is
+    actually visible instead of only discoverable by ID.
+
+    Args:
+        current_user: Authenticated user (required, ADMIN only)
+        db: Database session
+
+    Returns:
+        List of approved signals
+
+    Raises:
+        HTTPException 401: If not authenticated
+        HTTPException 403: If user does not have ADMIN role
+    """
+    signal_repo = SignalRepository(db)
+    approved_signals = signal_repo.get_by_status(SignalStatus.APPROVED)
+
+    logger.info(f"list_approved_signals: user={current_user.username}, count={len(approved_signals)}")
+
+    categories_by_signal = _categories_by_signal(db, [sig.id for sig in approved_signals])
+    visuals_by_signal = _visual_fields_by_signal(db, [sig.id for sig in approved_signals])
+
+    return [
+        {
+            "id": str(sig.id),
+            "title": sig.title,
+            "summary": sig.summary,
+            "status": sig.status.value,
+            "security_impact": sig.security_impact,
+            "principle": sig.principle,
+            "recommended_action": sig.recommended_action,
+            "created_at": sig.created_at.isoformat() if sig.created_at else None,
+            "reviewed_by": str(sig.reviewed_by) if sig.reviewed_by else None,
+            "reviewed_at": sig.reviewed_at.isoformat() if sig.reviewed_at else None,
+            "categories": categories_by_signal.get(sig.id, []),
+            **visuals_by_signal.get(sig.id, _NO_VISUAL),
+        }
+        for sig in approved_signals
+    ]
+
+
+@router.get("/rejected", response_model=list)
+def list_rejected_signals(
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db)
+):
+    """List REJECTED signals - PROTECTED (REVIEWER/ADMIN only).
+
+    Mirrors /draft and /approved: the counterpart that surfaces signals a
+    reviewer or admin has rejected, so that history is visible as its own
+    workflow stage instead of only discoverable by ID.
+
+    Args:
+        current_user: Authenticated user (required, REVIEWER/ADMIN)
+        db: Database session
+
+    Returns:
+        List of rejected signals
+
+    Raises:
+        HTTPException 401: If not authenticated
+        HTTPException 403: If user does not have REVIEWER or ADMIN role
+    """
+    signal_repo = SignalRepository(db)
+    rejected_signals = signal_repo.get_by_status(SignalStatus.REJECTED)
+
+    logger.info(f"list_rejected_signals: user={current_user.username}, count={len(rejected_signals)}")
+
+    categories_by_signal = _categories_by_signal(db, [sig.id for sig in rejected_signals])
+    visuals_by_signal = _visual_fields_by_signal(db, [sig.id for sig in rejected_signals])
+
+    return [
+        {
+            "id": str(sig.id),
+            "title": sig.title,
+            "summary": sig.summary,
+            "status": sig.status.value,
+            "security_impact": sig.security_impact,
+            "principle": sig.principle,
+            "recommended_action": sig.recommended_action,
+            "created_at": sig.created_at.isoformat() if sig.created_at else None,
+            "reviewed_by": str(sig.reviewed_by) if sig.reviewed_by else None,
+            "reviewed_at": sig.reviewed_at.isoformat() if sig.reviewed_at else None,
+            "categories": categories_by_signal.get(sig.id, []),
+            **visuals_by_signal.get(sig.id, _NO_VISUAL),
+        }
+        for sig in rejected_signals
+    ]
+
+
+@router.get("/{signal_id}", response_model=dict)
+def get_signal_detail(
+    signal_id: str,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    """Full detail for ONE signal in ANY status - PROTECTED (REVIEWER/ADMIN
+    only). Registered after the literal /draft, /approved and /published
+    routes above so it never shadows them (FastAPI matches path routes in
+    registration order, and this is a catch-all `{signal_id}` segment).
+
+    /draft and /approved return list-shaped summaries only; this is the
+    single endpoint the admin review UI's detail panel calls regardless of
+    which section a signal was opened from, since a signal's status can
+    change between DRAFT/IN_REVIEW/APPROVED/REJECTED/PUBLISHED while the
+    reviewer has it open. VIEWER cannot call this - a viewer's only signal
+    visibility is the public /published endpoints, which already have
+    their own detail route.
+
+    Mirrors get_published_signal's shape (evidence + categories + visual)
+    plus the fields list_draft_signals/list_approved_signals already
+    expose (status/created_at/reviewed_by/reviewed_at) - reuses the same
+    repositories and helpers, no new persistence or business logic.
+    """
+    sid = _parse_signal_id(signal_id)
+    signal_repo = SignalRepository(db)
+    evidence_repo = EvidenceRepository(db)
+
+    signal = signal_repo.get_by_id(sid)
+    if not signal:
+        raise HTTPException(status_code=404, detail="Signal not found")
+
+    categories_data = _categories_by_signal(db, [sid]).get(sid, [])
+    evidence_data = [
+        {
+            "id": str(ev.id),
+            "source_url": ev.source_url,
+            "source_title": ev.source_title,
+            "excerpt": ev.excerpt,
+            "created_at": ev.created_at.isoformat() if ev.created_at else None,
+        }
+        for ev in evidence_repo.get_by_signal(signal.id)
+    ]
+    visual_fields = _visual_fields_by_signal(db, [sid]).get(sid, _NO_VISUAL)
+
+    return {
+        "id": str(signal.id),
+        "title": signal.title,
+        "status": signal.status.value,
+        "summary": signal.summary,
+        "security_impact": signal.security_impact,
+        "principle": signal.principle,
+        "recommended_action": signal.recommended_action,
+        "created_at": signal.created_at.isoformat() if signal.created_at else None,
+        "reviewed_by": str(signal.reviewed_by) if signal.reviewed_by else None,
+        "reviewed_at": signal.reviewed_at.isoformat() if signal.reviewed_at else None,
+        "published_at": signal.published_at.isoformat() if signal.published_at else None,
+        "categories": categories_data,
+        "public_categories": internal_categories_to_public(c["category"] for c in categories_data),
+        "evidence": evidence_data,
+        **visual_fields,
+    }
 
 
 # Phase 6: Review workflow - thin wrappers around SignalService.
@@ -314,9 +521,17 @@ def approve_signal_route(
     return _serialize_signal_detail(signal)
 
 
+class RejectSignalRequest(BaseModel):
+    """Optional review note explaining a rejection. Never required at the
+    schema level (older/other callers may still call this endpoint with no
+    body), but the admin UI's reject flow always collects one."""
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
 @router.post("/{signal_id}/reject", response_model=dict)
 def reject_signal_route(
     signal_id: str,
+    body: RejectSignalRequest = RejectSignalRequest(),
     current_user: User = Depends(require_reviewer),
     db: Session = Depends(get_db),
 ):
@@ -324,7 +539,7 @@ def reject_signal_route(
     sid = _parse_signal_id(signal_id)
     service = SignalService(db)
     try:
-        signal = service.reject_signal(sid, reviewer_id=current_user.id)
+        signal = service.reject_signal(sid, reviewer_id=current_user.id, reason=body.reason)
     except NotFoundError:
         db.rollback()
         raise HTTPException(status_code=404, detail="Signal not found")

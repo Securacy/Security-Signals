@@ -8,6 +8,7 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof FilterBar>> = 
     subcategory: null,
     search: "",
     sort: "recent" as const,
+    isSearching: false,
     onCategoryChange: vi.fn(),
     onSubcategoryChange: vi.fn(),
     onSearchChange: vi.fn(),

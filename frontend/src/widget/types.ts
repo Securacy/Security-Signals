@@ -95,7 +95,25 @@ export interface SignalSummary {
   public_categories: string[];
 }
 
-export type VisualStatus = "pending" | "generated" | "failed";
+/** Shape returned by GET /api/v1/analytics/public - computed ONLY from
+ * PUBLISHED signals, so it can never reveal that a draft/in-review/approved/
+ * rejected signal exists. Source of truth: AnalyticsService.get_public_analytics. */
+export interface PublicAnalytics {
+  generated_at: string;
+  window_months: number;
+  total_published: number;
+  monthly_counts: { month: string; count: number }[];
+  category_counts: Record<string, number>;
+  principle_counts: Record<string, number>;
+  dominant_theme: string | null;
+}
+
+/** "none" means no SignalVisual row exists at all (the signal predates the
+ * visual-generation feature) - distinct from "pending" (generation is
+ * genuinely queued/in flight). The public feed/detail API only ever
+ * returns "none" here for that legacy case; it never implies a fabricated
+ * generation attempt. */
+export type VisualStatus = "pending" | "generated" | "failed" | "none";
 
 /** Shape returned by GET /api/v1/signals/published/{id} (detail). Only the
  * detail endpoint exposes visual fields - the list/feed endpoint never

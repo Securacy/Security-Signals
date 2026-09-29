@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, SecretStr, model_validator
 from typing import Optional
 import os
+import re
 
 # Known development/placeholder JWT secrets that must never be used in production.
 _INSECURE_JWT_SECRETS = {
@@ -102,17 +103,105 @@ class Settings(BaseSettings):
     search_candidate_limit: int = Field(default=50)
     search_ai_timeout_seconds: int = Field(default=8)
     search_rate_limit: str = Field(default="20/minute")
+    # Deliberately NOT bedrock_model_id (used for full signal generation,
+    # where reasoning quality matters most) - query-understanding here is a
+    # small, bounded classification task (extract categories/keywords from
+    # a short phrase into a fixed schema), so a fast model is the right
+    # trade-off and measurably faster: ~1.6-2.6s vs ~3.3-3.9s for the same
+    # real search prompts against Sonnet, with identical schema validity
+    # and identical prompt-injection refusal behavior (verified manually
+    # against this account's actual Bedrock model access - older Haiku
+    # versions (3, 3.5) have reached end-of-life on Bedrock and are no
+    # longer invokable, hence pinning the current one explicitly rather
+    # than a version-less alias). Overridable per-deployment without a
+    # code change if this model is retired later.
+    search_ai_model_id: str = Field(default="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    # Cache the AI's understanding of a normalized (trimmed/lowercased)
+    # query string for this long - short-lived, and only the AI
+    # UNDERSTANDING (categories/keywords/etc.), never the DB result set,
+    # which is always retrieved fresh per request (see
+    # signal_search_service.py) so newly published/unpublished signals are
+    # never masked by a stale cache entry.
+    search_ai_cache_ttl_seconds: int = Field(default=300)
+    search_ai_cache_max_entries: int = Field(default=256)
 
-    # Per-signal AI-generated threat visuals (ThreatVisualService). Uses
-    # the same AWS Bedrock account/region/credentials already configured
-    # above for Claude - no separate provider credentials. Disabling this
-    # flag (or any generation failure/timeout) never blocks signal
-    # publication; the frontend falls back to a static category icon.
+    # Per-signal AI-generated threat visuals (ThreatVisualService).
+    # `image_provider` selects which ImageProvider app/intelligence/
+    # visual_service.ThreatVisualService.from_settings constructs - the
+    # provider is a swappable abstraction (see app/intelligence/
+    # visual_service.ImageProvider); neither ThreatVisualService nor
+    # SignalVisual persistence changes based on which one is active.
+    # Disabling generation entirely (or any generation failure/timeout)
+    # never blocks signal publication; the frontend falls back to a
+    # static category icon.
     visual_generation_enabled: bool = Field(default=True)
-    bedrock_image_model_id: str = Field(default="amazon.nova-canvas-v1:0")
+    image_provider: str = Field(default="openai", pattern="^(bedrock|openai)$")
     visual_generation_timeout_seconds: int = Field(default=30)
     media_root: str = Field(default="media")
     media_url_prefix: str = Field(default="/media")
+
+    # Bedrock image provider (image_provider="bedrock") - uses the same
+    # AWS Bedrock account/region/credentials already configured above for
+    # Claude, no separate provider credentials.
+    bedrock_image_model_id: str = Field(default="amazon.nova-canvas-v1:0")
+
+    # OpenAI image provider (image_provider="openai", the current
+    # default). A separate credential from Bedrock/Claude - OpenAI is
+    # used ONLY for image rendering; signal analysis, structured
+    # intelligence, and visual CONCEPT generation all remain on Claude/
+    # Bedrock (see VisualConceptService). Never logged, never hardcoded -
+    # SecretStr keeps the raw key out of repr()/str()/logs, and callers
+    # must call get_secret_value() explicitly to use it. The model id is
+    # env-configurable rather than hardcoded so it can be updated without
+    # a code change as OpenAI ships new image-model versions/retires old
+    # ones (see OPENAI_IMAGE_MODEL_ID docs/shutdown_date on each model via
+    # GET https://api.openai.com/v1/models/{id}).
+    openai_api_key: Optional[SecretStr] = Field(default=None, alias="OPENAI_API_KEY")
+    openai_image_model_id: str = Field(default="gpt-image-2.5-flare", alias="OPENAI_IMAGE_MODEL_ID")
+    # Observed real-world latency for this model varies widely - 50s to
+    # over 240s for the same request shape (not a code defect; image
+    # generation is just slow and bursty). Generation runs as an
+    # asynchronous background job started when a Signal is first persisted
+    # as a DRAFT, so nothing ever waits on it and a generous ceiling costs
+    # nothing. It is enforced as a true wall-clock deadline by
+    # OpenAIImageProvider.generate() (see its docstring), so a genuinely
+    # stuck request is still bounded and recorded as a real FAILED visual.
+    openai_image_timeout_seconds: int = Field(default=420)
+
+    # Signal-specific visual CONCEPT derivation (a Claude text call that
+    # turns a signal's real content into a short, concrete visual scene
+    # description before it reaches the image model - see
+    # app/intelligence/visual_service.VisualConceptService). Disabling
+    # this flag (or any failure/timeout) falls back to the previous
+    # raw-field prompt construction, never blocking visual generation.
+    visual_concept_ai_enabled: bool = Field(default=True)
+    visual_concept_ai_timeout_seconds: int = Field(default=8)
+
+    # Microsoft Entra ID (OIDC authorization-code flow, backend-driven).
+    # The client secret exists ONLY here on the backend (SecretStr: never in
+    # repr()/logs, never sent to the frontend). Disabled by default so an
+    # existing deployment is unchanged until an operator opts in.
+    entra_enabled: bool = Field(default=False)
+    entra_tenant_id: str = Field(default="")
+    entra_client_id: str = Field(default="")
+    entra_client_secret: Optional[SecretStr] = Field(default=None)
+    entra_redirect_uri: str = Field(default="http://localhost:8000/api/v1/auth/entra/callback")
+    # Override only for sovereign clouds (e.g. https://login.microsoftonline.us).
+    entra_authority_host: str = Field(default="https://login.microsoftonline.com")
+    # No application-side access check lives here: the Security Signals
+    # Enterprise Application's own "user assignment required" setting (in
+    # the Entra/Azure portal, not this codebase) is what restricts who can
+    # sign in at all. An unassigned user's flow is rejected by Microsoft
+    # itself before our callback ever sees a valid code.
+    # One-time link of an existing internal account (same email, not yet
+    # linked) to the Entra object ID; the object ID is the identity key
+    # from then on, never the email.
+    entra_link_existing_users_by_email: bool = Field(default=True)
+    # Lifetime of the application session issued after an Entra sign-in.
+    entra_session_hours: int = Field(default=8, ge=1, le=24)
+    # Keep the temporary username/password login available (development /
+    # break-glass). Set false to make Entra the only way in.
+    local_login_enabled: bool = Field(default=True)
 
     # Scheduler (Phase 4): weekly automated ingestion. Defaults on for
     # normal operation; the app's test suite never triggers FastAPI's
@@ -163,6 +252,35 @@ class Settings(BaseSettings):
                     f"JWT_SECRET_KEY must be at least {_MIN_PRODUCTION_JWT_SECRET_LENGTH} "
                     "characters in production."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_entra_configuration(self):
+        """When Entra sign-in is enabled, refuse to boot with an incomplete
+        or unsafe configuration - failing loudly at startup is safer than a
+        login flow that silently denies (or, worse, mis-validates) users."""
+        if not self.entra_enabled:
+            return self
+
+        guid = re.compile(r"^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
+        problems = []
+        if not guid.match(self.entra_tenant_id):
+            problems.append("ENTRA_TENANT_ID must be the tenant's GUID (not 'common'/'organizations')")
+        if not guid.match(self.entra_client_id):
+            problems.append("ENTRA_CLIENT_ID must be the application (client) ID GUID")
+        if self.entra_client_secret is None or not self.entra_client_secret.get_secret_value().strip():
+            problems.append("ENTRA_CLIENT_SECRET is required")
+        if not self.entra_authority_host.startswith("https://"):
+            problems.append("ENTRA_AUTHORITY_HOST must be an https:// URL")
+        if not self.entra_redirect_uri.startswith(("http://", "https://")):
+            problems.append("ENTRA_REDIRECT_URI must be an absolute http(s) URL")
+        if self.environment == "production":
+            if not self.entra_redirect_uri.startswith("https://"):
+                problems.append("ENTRA_REDIRECT_URI must use https in production")
+            if not self.frontend_url.startswith("https://"):
+                problems.append("FRONTEND_URL must use https in production")
+        if problems:
+            raise ValueError("Invalid Entra configuration: " + "; ".join(problems))
         return self
 
     @model_validator(mode="after")

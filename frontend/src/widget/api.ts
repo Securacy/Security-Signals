@@ -5,12 +5,15 @@
  *   GET /api/v1/signals/published
  *   GET /api/v1/signals/published/{id}
  *   GET /api/v1/signals/search (natural-language search, Feature 3)
+ *   GET /api/v1/analytics/public (published-only aggregate counts)
  *
  * No token/credential handling of any kind belongs here - this widget never
  * authenticates and must never call internal admin/reviewer/audit/auth
- * endpoints.
+ * endpoints. The admin app also imports the public-endpoint functions here
+ * directly (e.g. for its Dashboard) rather than duplicating this fetch
+ * logic, since they carry no auth and are safe to reuse as-is.
  */
-import type { SignalDetail, SignalSummary } from "./types";
+import type { PublicAnalytics, SignalDetail, SignalSummary } from "./types";
 
 export class ApiError extends Error {
   status: number | null;
@@ -97,6 +100,11 @@ export async function fetchPublishedSignals(
 export async function fetchSignalDetail(apiBaseUrl: string, id: string): Promise<SignalDetail> {
   const url = buildUrl(apiBaseUrl, `/api/v1/signals/published/${encodeURIComponent(id)}`, {});
   return getJson<SignalDetail>(url);
+}
+
+export async function fetchPublicAnalytics(apiBaseUrl: string, months = 12): Promise<PublicAnalytics> {
+  const url = buildUrl(apiBaseUrl, "/api/v1/analytics/public", { months });
+  return getJson<PublicAnalytics>(url);
 }
 
 /**

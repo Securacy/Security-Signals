@@ -86,7 +86,16 @@ def get_current_user(
     if not user.is_active:
         logger.warning(f"user_inactive: {user.username}")
         raise HTTPException(status_code=403, detail="User account is inactive")
-    
+
+    # Session invalidation on password change: a token issued before the
+    # user's password was last changed carries a stale (or absent, for
+    # tokens issued before this check existed) pwd_ver and is rejected here
+    # - see create_access_token for how pwd_ver is derived.
+    current_pwd_ver = int(user.password_changed_at.timestamp()) if user.password_changed_at else 0
+    if payload.get("pwd_ver", 0) != current_pwd_ver:
+        logger.warning(f"token_stale_password_version: {user.username}")
+        raise HTTPException(status_code=401, detail="Session expired due to a password change. Please sign in again.")
+
     return user
 
 

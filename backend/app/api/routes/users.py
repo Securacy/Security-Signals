@@ -18,7 +18,7 @@ from app.db.connection import get_db
 from app.db.models import User, UserRole
 from app.api.dependencies import require_admin
 from app.services.user_service import UserService
-from app.common.errors import NotFoundError, UniqueConstraintError
+from app.common.errors import NotFoundError, UniqueConstraintError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,22 @@ class UserUpdateRequest(BaseModel):
 
 
 def _serialize_user(user: User) -> dict:
-    """Serialize a User for API responses. Never includes password_hash."""
+    """Serialize a User for API responses. Never includes password_hash.
+
+    `has_local_credential`/`entra_linked` let the frontend show the real
+    auth method(s) for this account (a user can be linked to Entra AND
+    still have a local password - see app/services/entra_auth_service.py's
+    email-linking, which never touches password_hash) and decide whether
+    to offer a local password action at all.
+    """
     return {
         "id": str(user.id),
         "username": user.username,
         "email": user.email,
         "role": user.role.value,
         "is_active": user.is_active,
+        "has_local_credential": user.password_hash is not None,
+        "entra_linked": user.entra_object_id is not None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
@@ -194,3 +203,67 @@ def deactivate_user(
 
     logger.info(f"user_deactivated: actor={current_user.username}, user={uid}")
     return _serialize_user(user)
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Admin sets a fresh password for another local/password user - never
+    reveals, and never accepts, the existing one."""
+    new_password: str = Field(..., min_length=1, max_length=128)
+    confirm_password: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/{user_id}/reset-password", response_model=dict)
+def admin_reset_password(
+    user_id: str,
+    body: AdminResetPasswordRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Set a new password for another LOCAL/PASSWORD user - ADMIN only.
+
+    Refuses an Entra-only account (no local password_hash to reset) with a
+    400, never treating an Entra identity as a local one. Never returns or
+    logs the password itself."""
+    if body.new_password != body.confirm_password:
+        raise HTTPException(status_code=400, detail="New password and confirmation do not match")
+
+    uid = _parse_user_id(user_id)
+    service = UserService(db)
+    try:
+        user = service.admin_reset_password(uid, actor_id=current_user.id, new_password=body.new_password)
+    except NotFoundError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="User not found")
+    except (ValueError, ValidationError) as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(f"password_reset_by_admin: actor={current_user.username}, user={uid}")
+    return _serialize_user(user)
+
+
+@router.delete("/{user_id}", status_code=204)
+def purge_inactive_user(
+    user_id: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Permanently remove an INACTIVE user account - ADMIN only.
+
+    Refuses (400) if the target is still active: only a user that has
+    already been deactivated may ever be purged. Safe by construction - see
+    UserService.purge_inactive_user for the foreign-key/audit-integrity
+    reasoning."""
+    uid = _parse_user_id(user_id)
+    service = UserService(db)
+    try:
+        service.purge_inactive_user(uid, actor_id=current_user.id)
+    except NotFoundError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="User not found")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(f"user_purged: actor={current_user.username}, user={uid}")
+    return None

@@ -30,6 +30,33 @@ _settings = get_settings()
 _MAX_QUERY_LENGTH = 500  # hard cap independent of settings.search_max_query_length,
                           # enforced at the transport layer before any processing
 
+# Built once, lazily, and reused for the process lifetime - constructing a
+# NaturalLanguageSearchService rebuilds a boto3 Bedrock client from scratch
+# (and, when credentials are configured as Secrets Manager ARNs, makes a
+# real extra network round-trip to resolve them - see
+# app/intelligence/bedrock_client.py's _resolve_secret_value), which is
+# pure per-request overhead: credentials/region/model config are static for
+# the life of this process, exactly like every other setting this app
+# already treats as fixed at startup. This does not change behavior -
+# still the same client construction, just done once instead of on every
+# search request - and still falls back to deterministic search below if
+# construction fails.
+_search_ai_service = None
+_search_ai_service_init_failed = False
+
+
+def _get_search_ai_service():
+    global _search_ai_service, _search_ai_service_init_failed
+    if _search_ai_service is not None or _search_ai_service_init_failed:
+        return _search_ai_service
+    try:
+        from app.intelligence.search_service import NaturalLanguageSearchService
+        _search_ai_service = NaturalLanguageSearchService.from_settings(_settings)
+    except Exception as e:
+        logger.warning(f"search_ai_unavailable: {type(e).__name__}: {e}")
+        _search_ai_service_init_failed = True
+    return _search_ai_service
+
 
 @router.get("/search", response_model=dict)
 @limiter.limit(_settings.search_rate_limit)
@@ -70,16 +97,7 @@ def search_signals(
             raise HTTPException(status_code=422, detail=str(e))
         category = None  # public_category takes precedence
 
-    ai_service = None
-    if settings.search_ai_enabled:
-        try:
-            from app.intelligence.search_service import NaturalLanguageSearchService
-            ai_service = NaturalLanguageSearchService.from_settings(settings)
-        except Exception as e:
-            # Bedrock not configured/reachable - fall back to deterministic
-            # search rather than fail the request.
-            logger.warning(f"search_ai_unavailable: {type(e).__name__}: {e}")
-            ai_service = None
+    ai_service = _get_search_ai_service() if settings.search_ai_enabled else None
 
     result = search_published_signals(
         db, query=q, category=category, explicit_categories=explicit_internal_categories,

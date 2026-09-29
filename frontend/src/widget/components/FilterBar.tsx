@@ -15,6 +15,7 @@ interface FilterBarProps {
   subcategory: string | null;
   search: string;
   sort: SortOption;
+  isSearching: boolean;
   onCategoryChange: (category: string | null) => void;
   onSubcategoryChange: (subcategory: string | null) => void;
   onSearchChange: (search: string) => void;
@@ -22,11 +23,36 @@ interface FilterBarProps {
   onClear: () => void;
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" className="ss-search-field__icon">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="M19.5 19.5 15 15" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SearchSpinner() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="ss-search-field__spinner"
+      role="status"
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function FilterBar({
   category,
   subcategory,
   search,
   sort,
+  isSearching,
   onCategoryChange,
   onSubcategoryChange,
   onSearchChange,
@@ -42,14 +68,18 @@ export function FilterBar({
           <label className="ss-field__label" htmlFor="ss-filter-search">
             Search
           </label>
-          <input
-            id="ss-filter-search"
-            type="search"
-            className="ss-input"
-            placeholder="Ask about a security threat, incident, technology, or attack…"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
+          <div className="ss-search-field">
+            <SearchIcon />
+            <input
+              id="ss-filter-search"
+              type="search"
+              className="ss-input ss-search-field__input"
+              placeholder="Ask about a security threat, e.g. “is there anything about OAuth?”"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+            />
+            {isSearching && <SearchSpinner />}
+          </div>
         </div>
       </div>
 

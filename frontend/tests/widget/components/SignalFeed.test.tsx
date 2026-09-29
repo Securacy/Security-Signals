@@ -153,6 +153,53 @@ describe("SignalFeed", () => {
     await waitFor(() => expect(screen.getByText(/Understood as:/)).toBeInTheDocument());
   });
 
+  it("shows a result count alongside the 'Understood as' hint", async () => {
+    vi.mocked(api.fetchPublishedSignals).mockResolvedValue({ signals: [], hasMore: false });
+    vi.mocked(api.searchSignals).mockResolvedValue({
+      signals: [makeSignal({ id: "a" }), makeSignal({ id: "b" })],
+      aiUnderstood: true,
+      understoodPublicCategories: ["ai_security"],
+    });
+
+    render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "AI agent abuse" } });
+
+    await waitFor(() => expect(screen.getByText(/2 matching signals/)).toBeInTheDocument());
+  });
+
+  it("shows a helpful, non-generic empty state for a search with no matches", async () => {
+    vi.mocked(api.fetchPublishedSignals).mockResolvedValue({ signals: [], hasMore: false });
+    vi.mocked(api.searchSignals).mockResolvedValue({
+      signals: [],
+      aiUnderstood: true,
+      understoodPublicCategories: ["data_privacy"],
+    });
+
+    render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "recent data privacy breaches" } });
+
+    await waitFor(() => expect(screen.getByText("No matching signals found")).toBeInTheDocument());
+    expect(screen.queryByText("No news found.")).toBeNull();
+  });
+
+  it("shows a search-in-progress indicator on the search field while a search request is pending", async () => {
+    let resolveSearch: (value: any) => void = () => {};
+    vi.mocked(api.fetchPublishedSignals).mockResolvedValue({ signals: [], hasMore: false });
+    vi.mocked(api.searchSignals).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSearch = resolve;
+      }),
+    );
+
+    render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "oauth" } });
+
+    await waitFor(() => expect(document.querySelector(".ss-search-field__spinner")).not.toBeNull());
+
+    resolveSearch({ signals: [], aiUnderstood: false, understoodPublicCategories: [] });
+    await waitFor(() => expect(document.querySelector(".ss-search-field__spinner")).toBeNull());
+  });
+
   it("falls back to the feed's normal error state when search itself fails", async () => {
     vi.mocked(api.fetchPublishedSignals).mockResolvedValue({ signals: [], hasMore: false });
     vi.mocked(api.searchSignals).mockRejectedValue(new ApiError("search unavailable", 503));

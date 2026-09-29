@@ -75,7 +75,11 @@ class TestLoginSuccess:
         assert data["user"]["username"] == "admin_test"
         assert data["user"]["role"] == "admin"
         assert data["user"]["is_active"] is True
-        
+        # Lets the frontend profile menu show "Password managed" vs
+        # "Microsoft Entra managed" without a second, admin-only API call.
+        assert data["user"]["has_local_credential"] is True
+        assert data["user"]["entra_linked"] is False
+
         # Verify audit log created
         audit_repo = AuditLogRepository(db)
         logs = audit_repo.get_by_resource("user", admin_user.id)

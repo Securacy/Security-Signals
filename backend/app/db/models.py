@@ -634,10 +634,21 @@ class User(Base):
     email = Column(String(255), nullable=False, unique=True, index=True)
     role = Column(SQLEnum(UserRole), nullable=False)
     
-    # Authentication (placeholder, no implementation in Phase 2)
-    password_hash = Column(String(255), nullable=False)
+    # Authentication. NULL for accounts that only ever sign in through
+    # Microsoft Entra ID: no password exists, so local password login can
+    # never succeed for them (see app/api/routes/auth.py).
+    password_hash = Column(String(255), nullable=True)
+    # Microsoft Entra object ID (the token's `oid` claim): the permanent
+    # identity key for Entra sign-in. Deliberately NOT the email, which can
+    # change or be reassigned. NULL for accounts never linked to Entra.
+    entra_object_id = Column(String(64), nullable=True, unique=True, index=True)
     is_active = Column(Boolean, default=True, index=True)
-    
+    # When password_hash was last set/changed. Embedded in every issued JWT
+    # (as `pwd_ver`) so a password change invalidates previously-issued
+    # tokens on their next use - see app/auth/tokens.py and
+    # app/api/dependencies.py. NULL until the first password set/change.
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Audit
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

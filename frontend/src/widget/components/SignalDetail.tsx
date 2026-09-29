@@ -71,16 +71,8 @@ export function SignalDetail({ apiBaseUrl, signalId, onBack }: SignalDetailProps
 
       {status === "ready" && signal && (
         <article>
-          <SignalVisualBox
-            apiBaseUrl={apiBaseUrl}
-            visualStatus={signal.visual_status}
-            visualUrl={signal.visual_url}
-            fallbackCategory={signal.public_categories[0] ?? null}
-          />
-
           <h2 className="ss-detail__title">{signal.title}</h2>
-          <div className="ss-card__meta-row">
-            <p className="ss-detail__meta">{formatRelativeTime(signal.published_at)}</p>
+          <div className="ss-card__meta-row ss-detail__meta-row">
             {signal.public_categories.length > 0 && (
               <span className="ss-card__category-icons">
                 {signal.public_categories.map((category) => (
@@ -88,7 +80,15 @@ export function SignalDetail({ apiBaseUrl, signalId, onBack }: SignalDetailProps
                 ))}
               </span>
             )}
+            <p className="ss-detail__meta">{formatRelativeTime(signal.published_at)}</p>
           </div>
+
+          <SignalVisualBox
+            apiBaseUrl={apiBaseUrl}
+            visualStatus={signal.visual_status}
+            visualUrl={signal.visual_url}
+            fallbackCategory={signal.public_categories[0] ?? null}
+          />
 
           <section className="ss-detail__section">
             <h3>What happened</h3>

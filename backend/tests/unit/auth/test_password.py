@@ -144,3 +144,23 @@ class TestPasswordStrengthPolicy:
         """When no username is supplied (e.g. a standalone policy check),
         the identical-to-username rule simply doesn't apply."""
         validate_password_strength("Str0ng!Password")
+
+    def test_password_identical_to_full_email_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Us3r!Name@x.com", email="Us3r!Name@x.com")
+        assert "email" in str(exc.value).lower()
+
+    def test_password_identical_to_email_local_part_rejected(self):
+        with pytest.raises(ValueError) as exc:
+            validate_password_strength("Us3r!Namexxxx", email="Us3r!Namexxxx@example.com")
+        assert "email" in str(exc.value).lower()
+
+    def test_password_identical_to_email_case_insensitive_rejected(self):
+        with pytest.raises(ValueError):
+            validate_password_strength("us3r!namexx", email="US3R!NAMEXX@EXAMPLE.COM")
+
+    def test_no_email_provided_skips_email_check(self):
+        validate_password_strength("Str0ng!Password")
+
+    def test_password_matching_neither_username_nor_email_accepted(self):
+        validate_password_strength("Str0ng!Passw0rd", username="alice", email="alice@example.com")

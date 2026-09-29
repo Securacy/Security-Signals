@@ -126,6 +126,7 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
         subcategory={subcategory}
         search={search}
         sort={sort}
+        isSearching={isSearchMode && status === "loading"}
         onCategoryChange={setCategory}
         onSubcategoryChange={setSubcategory}
         onSearchChange={setSearch}
@@ -137,14 +138,19 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
 
       {status === "error" && <ErrorState onRetry={() => load(0, true)} />}
 
-      {status === "ready" && isSearchMode && aiUnderstood && understoodPublicCategories.length > 0 && (
+      {status === "ready" && isSearchMode && (
         <p className="ss-search-understood" role="status">
-          Understood as: {understoodPublicCategories.map((c) => publicCategoryLabel(c)).join(", ")}
+          {aiUnderstood && understoodPublicCategories.length > 0
+            ? `Understood as: ${understoodPublicCategories.map((c) => publicCategoryLabel(c)).join(", ")} — `
+            : ""}
+          {signals.length === 0
+            ? "no matching signals"
+            : `${signals.length} matching signal${signals.length === 1 ? "" : "s"}`}
         </p>
       )}
 
       {status !== "loading" && status !== "error" && signals.length === 0 && (
-        <EmptyState filtered={isFiltered} />
+        <EmptyState filtered={isFiltered} isSearchMode={isSearchMode} />
       )}
 
       {status !== "loading" && status !== "error" && signals.length > 0 && (

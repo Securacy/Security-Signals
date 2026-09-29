@@ -119,6 +119,76 @@ class TestAIAssistedSearch:
         assert ransomware_signal.id not in result_ids
 
 
+class TestCategoryMismatchRescue:
+    """The exact "is there any oauth" bug: the search AI's category GUESS
+    can legitimately differ from the real internal category Claude
+    assigned at signal-generation time (see
+    app/intelligence/ai_service.py's threat-modeling-first prompt, which
+    often prefers insecure_design over a more specific domain). A named
+    entity the AI is confident about (Section 2.4: "OAuth" -> OAuth)
+    must still find the real signal, searched globally, when the
+    understood category+keywords find nothing."""
+
+    def test_named_entity_finds_signal_filed_under_a_different_category(self, db: Session, security_event, reviewer):
+        oauth_signal = _publish(
+            db, security_event, reviewer,
+            "OAuth2 Token Exchange Missing Scope Validation Enables Privilege Escalation",
+            "A sufficiently long description of the OAuth token exchange design flaw.",
+            category="insecure_design",  # NOT iam/app_api - the real classification
+        )
+
+        mock_ai = MagicMock()
+        mock_ai.understand_query.return_value = SearchQueryUnderstanding(
+            intent="is there any oauth", categories=["iam", "app_api"], subcategories=[],
+            keywords=["oauth"], entities=["OAuth"], time_range=None,
+            search_terms=["oauth"], semantic_query="OAuth-related security signals", confidence=0.85,
+        )
+
+        result = search_published_signals(db, query="is there any oauth", ai_service=mock_ai)
+
+        assert any(s.id == oauth_signal.id for s in result.signals)
+
+    def test_no_entities_and_wrong_category_returns_honest_empty_result(self, db: Session, security_event, reviewer):
+        """The entity rescue must NOT degrade into an unscoped noisy
+        search - a query with no named entities, mapped to a category
+        that genuinely has no content, must come back empty."""
+        _publish(db, security_event, reviewer, "Ransomware Campaign Targets Hospitals",
+                 "A sufficiently long description of a ransomware campaign.", category="ransomware")
+
+        mock_ai = MagicMock()
+        mock_ai.understand_query.return_value = SearchQueryUnderstanding(
+            intent="data privacy breaches", categories=["data_privacy"], subcategories=[],
+            keywords=["privacy", "breaches"], entities=[], time_range=None,
+            search_terms=["privacy breach"], semantic_query="recent data privacy breaches", confidence=0.9,
+        )
+
+        result = search_published_signals(db, query="recent data privacy breaches", ai_service=mock_ai)
+
+        assert result.signals == []
+
+    def test_understood_internal_category_expands_to_its_public_siblings(self, db: Session, security_event, reviewer):
+        """"app_api" and "insecure_design" both collapse into the public
+        "Product Security" category (see app/taxonomy.py) - a real signal
+        filed under the sibling the AI didn't literally name must still
+        be found."""
+        product_signal = _publish(
+            db, security_event, reviewer, "Insecure Direct Object Reference in Billing API",
+            "A sufficiently long description of an IDOR design flaw in the billing API.",
+            category="insecure_design",
+        )
+
+        mock_ai = MagicMock()
+        mock_ai.understand_query.return_value = SearchQueryUnderstanding(
+            intent="API security problems", categories=["app_api"], subcategories=[],
+            keywords=["api", "security"], entities=[], time_range=None,
+            search_terms=["API security issues"], semantic_query="security problems affecting APIs", confidence=0.9,
+        )
+
+        result = search_published_signals(db, query="what security problems are affecting APIs?", ai_service=mock_ai)
+
+        assert any(s.id == product_signal.id for s in result.signals)
+
+
 class TestSecurityBoundary:
     def test_draft_signals_never_returned(self, db: Session, security_event, reviewer):
         service = SignalService(db)

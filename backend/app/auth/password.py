@@ -18,9 +18,12 @@ _MIN_PASSWORD_LENGTH = 12
 _SPECIAL_CHARACTERS = set(string.punctuation)
 
 
-def validate_password_strength(password: str, username: Optional[str] = None) -> None:
+def validate_password_strength(
+    password: str, username: Optional[str] = None, email: Optional[str] = None,
+) -> None:
     """
-    Enforce the account-creation password policy:
+    Enforce the ONE Security Signals password policy, everywhere a password
+    is set or changed:
       - minimum 12 characters
       - at least 1 uppercase letter
       - at least 1 lowercase letter
@@ -28,12 +31,16 @@ def validate_password_strength(password: str, username: Optional[str] = None) ->
       - at least 1 special character
       - no leading/trailing whitespace
       - must not be identical to the username (case-insensitive)
+      - must not be identical to the email/local-part of the email
+        (case-insensitive)
 
-    This is deliberately separate from hash_password()'s own minimal check
-    (kept as-is for backward compatibility with direct callers) - this is
-    the policy enforced at account-creation time, called from
-    UserService.create_user so every creation path (the admin API and the
-    demo-user seed script) goes through the same rule set.
+    This is the single source of truth for the policy - called from
+    UserService.create_user, UserService.change_own_password, and
+    UserService.admin_reset_password, so every path that sets or changes a
+    password (account creation, the demo-user seed script, self-service
+    change, admin reset) enforces exactly the same rules. Deliberately
+    separate from hash_password()'s own minimal length check, which exists
+    only for callers that hash a value that was already validated elsewhere.
 
     Raises:
         ValueError: with a message describing the specific rule violated.
@@ -59,6 +66,12 @@ def validate_password_strength(password: str, username: Optional[str] = None) ->
 
     if username is not None and password.lower() == username.lower():
         raise ValueError("Password must not be identical to the username")
+
+    if email is not None:
+        email_lower = email.lower()
+        local_part = email_lower.split("@", 1)[0]
+        if password.lower() in (email_lower, local_part):
+            raise ValueError("Password must not be identical to the email address")
 
 
 def hash_password(plain_password: str) -> str:

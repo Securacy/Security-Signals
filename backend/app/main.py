@@ -49,6 +49,15 @@ def create_app() -> FastAPI:
     # Routes
     app.include_router(health.router)
 
+    # AI-assisted natural-language signal search (Feature 3) - registered
+    # under /api/v1/signals/search, the SAME prefix as signals.router below.
+    # It must be included first: signals.router's GET /{signal_id} is a
+    # catch-all that would otherwise shadow this literal /search path,
+    # since FastAPI/Starlette matches routes in registration order across
+    # routers sharing a prefix, not just within one router.
+    from app.api.routes import search
+    app.include_router(search.router)
+
     # Phase 4-5: AI Intelligence & Signals
     from app.api.routes import signals
     app.include_router(signals.router)
@@ -56,6 +65,9 @@ def create_app() -> FastAPI:
     # Phase 6: Authentication, user management, audit visibility
     from app.api.routes import auth
     app.include_router(auth.router)
+
+    from app.api.routes import entra_auth
+    app.include_router(entra_auth.router)
 
     from app.api.routes import users
     app.include_router(users.router)
@@ -70,10 +82,6 @@ def create_app() -> FastAPI:
     # Category/source coverage health - admin-only (Feature 2)
     from app.api.routes import category_health
     app.include_router(category_health.router)
-
-    # AI-assisted natural-language signal search (Feature 3)
-    from app.api.routes import search
-    app.include_router(search.router)
 
     # Per-signal AI-generated threat visuals (ThreatVisualService writes
     # files under settings.media_root; served statically here, read-only -

@@ -618,12 +618,18 @@ class TestPublishedSignalDetailVisualAndTaxonomy:
         # ai_response fixture uses category="insecure_design" -> product_security
         assert response.json()["public_categories"] == ["product_security"]
 
-    def test_detail_visual_defaults_to_pending_when_no_row_exists(self, db, client, security_event, ai_response):
+    def test_detail_visual_defaults_to_none_when_no_row_exists(self, db, client, security_event, ai_response):
         """Visual generation is disabled in the test suite (see
         tests/conftest.py's autouse _disable_real_visual_generation), so no
-        SignalVisual row is ever created here - the detail endpoint must
-        still respond safely with a pending/no-url default rather than
-        erroring."""
+        SignalVisual row is ever created here - the same shape a genuinely
+        legacy signal (published before the visual-generation feature
+        existed) has. The detail endpoint must report "none", not
+        "pending": "pending" claims a generation job is queued and will
+        finish, which is false here - nothing was ever queued and nothing
+        ever will be. This is the same legacy-vs-queued distinction every
+        admin signal route already makes (see _NO_VISUAL in
+        app/api/routes/signals.py) - a regression test for a bug where this
+        one route alone defaulted to "pending" instead."""
         service = SignalService(db)
         signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
         service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
@@ -635,7 +641,7 @@ class TestPublishedSignalDetailVisualAndTaxonomy:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["visual_status"] == "pending"
+        assert data["visual_status"] == "none"
         assert data["visual_url"] is None
 
     def test_list_endpoint_never_exposes_visual_fields(self, db, client, security_event, ai_response):
