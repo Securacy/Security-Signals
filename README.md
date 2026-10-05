@@ -651,17 +651,3 @@ Important lifecycle and administrative operations produce audit records.
 ### 7. Secrets Never Belong in Source Code
 
 Credentials and environment-specific secrets remain outside version control.
-
-## Limitations
-
-- Ingestion is scheduled rather than real-time
-- Semantic ML-based deduplication is not implemented
-- Threat actor attribution is not performed
-- Predictive severity scoring is not implemented
-- Crowd-sourced threats are outside the scope of the platform
-- Direct Securacy threat-model integration is not currently implemented
-- Distributed scheduler coordination requires additional infrastructure for multi-replica deployments
-
-## License
-
-Add the project's applicable license here.
