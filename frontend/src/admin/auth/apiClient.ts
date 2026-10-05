@@ -34,7 +34,7 @@ function extractErrorMessage(body: unknown, status: number): string {
       .filter((msg): msg is string => msg !== null);
     if (messages.length > 0) return messages.join(" ");
   }
-  return `Security Signals API returned ${status}`;
+  return `Cyberscope API returned ${status}`;
 }
 
 /**
@@ -68,7 +68,7 @@ export function useAuthorizedFetch(): AuthorizedFetch {
           body: body !== undefined ? JSON.stringify(body) : undefined,
         });
       } catch {
-        throw new ApiError("Network error while reaching Security Signals API", null);
+        throw new ApiError("Network error while reaching Cyberscope API", null);
       }
 
       if (response.status === 401) {
@@ -87,7 +87,7 @@ export function useAuthorizedFetch(): AuthorizedFetch {
 
       const parsed = await parseJsonBody(response);
       if (parsed === undefined) {
-        throw new ApiError("Security Signals API returned an invalid response", response.status);
+        throw new ApiError("Cyberscope API returned an invalid response", response.status);
       }
       return parsed as T;
     },

@@ -123,12 +123,11 @@ describe("AuditLogPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Signal approved")).toBeInTheDocument();
-    expect(screen.getByText("Signal rejected")).toBeInTheDocument();
-    // actor resolved from the real /users list, not a raw UUID
-    expect(screen.getByText("current-admin")).toBeInTheDocument();
-    // no user_id -> "System", never fabricated
-    expect(screen.getAllByText("System").length).toBeGreaterThan(0);
+    // narrative title: "<actor> approved "<signal>"." - actor resolved from
+    // the real /users list (not a raw UUID), no user_id -> "System", never
+    // fabricated.
+    expect(await screen.findByText('current-admin approved "Signal #sig-1234".')).toBeInTheDocument();
+    expect(screen.getByText('System rejected "Signal #sig-9876".')).toBeInTheDocument();
     // the reject reason is surfaced as a real fact, not buried in raw JSON
     // (it also appears inside the collapsed raw-details payload, hence >0)
     expect(screen.getByText("Review note")).toBeInTheDocument();
@@ -146,6 +145,64 @@ describe("AuditLogPage", () => {
     expect(screen.getByText("Viewer")).toBeInTheDocument(); // Previous
     expect(screen.getByText("Reviewer")).toBeInTheDocument(); // New
     expect(screen.getByText("current-admin")).toBeInTheDocument(); // Changed by
+  });
+
+  it("renders a signal content edit with per-field previous/new values", async () => {
+    seedSession();
+    const editedEntry = {
+      id: "audit-4",
+      user_id: "u-self",
+      action: "SIGNAL_EDITED",
+      resource_type: "SIGNAL",
+      resource_id: "sig-123456789",
+      changes: { principle: { from: "Validate all OAuth tokens", to: "Validate audience and issuer claims" } },
+      timestamp: "2026-01-06T09:00:00Z",
+    };
+    mockAuditFetches([editedEntry]);
+
+    renderPage();
+
+    expect(await screen.findByText('current-admin edited "Signal #sig-1234".')).toBeInTheDocument();
+    expect(screen.getByText("Secure Design Principle — previous")).toBeInTheDocument();
+    expect(screen.getByText("Validate all OAuth tokens")).toBeInTheDocument();
+    expect(screen.getByText("Secure Design Principle — new")).toBeInTheDocument();
+    expect(screen.getByText("Validate audience and issuer claims")).toBeInTheDocument();
+  });
+
+  it("renders a signal category edit", async () => {
+    seedSession();
+    const categoryEditedEntry = {
+      id: "audit-5",
+      user_id: "u-self",
+      action: "SIGNAL_CATEGORY_EDITED",
+      resource_type: "SIGNAL",
+      resource_id: "sig-123456789",
+      changes: { category: { from: "iam", to: "ransomware" } },
+      timestamp: "2026-01-06T10:00:00Z",
+    };
+    mockAuditFetches([categoryEditedEntry]);
+
+    renderPage();
+
+    expect(await screen.findByText('current-admin changed the category for "Signal #sig-1234".')).toBeInTheDocument();
+  });
+
+  it("renders a visual deletion", async () => {
+    seedSession();
+    const visualDeletedEntry = {
+      id: "audit-6",
+      user_id: "u-self",
+      action: "SIGNAL_VISUAL_DELETED",
+      resource_type: "SIGNAL",
+      resource_id: "sig-123456789",
+      changes: { title: "OAuth Audience Validation Bypass", visual_status: "generated", url: "/media/signals/sig-123456789.png" },
+      timestamp: "2026-01-06T11:00:00Z",
+    };
+    mockAuditFetches([visualDeletedEntry]);
+
+    renderPage();
+
+    expect(await screen.findByText('current-admin deleted the visual for "Signal #sig-1234".')).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no entries", async () => {
@@ -189,7 +246,7 @@ describe("AuditLogPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
-    await screen.findByText("Signal approved");
+    await screen.findByText('current-admin approved "Signal #sig-1234".');
 
     fireEvent.change(screen.getByLabelText("Resource type"), { target: { value: "SIGNAL" } });
     fireEvent.change(screen.getByLabelText("Action"), { target: { value: "SIGNAL_APPROVED" } });
@@ -234,7 +291,7 @@ describe("AuditLogPage", () => {
     );
 
     renderPage();
-    await screen.findByText("Signal approved");
+    await screen.findByText('current-admin approved "Signal #sig-1234".');
 
     fireEvent.change(screen.getByLabelText("Action"), { target: { value: "NO_SUCH_ACTION" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
@@ -247,7 +304,7 @@ describe("AuditLogPage", () => {
     mockAuditFetches([rejectedEntry]);
 
     renderPage();
-    await screen.findByText("Signal rejected");
+    await screen.findByText('System rejected "Signal #sig-9876".');
 
     // "Stale evidence" is already visible as the human-readable "Review
     // note" fact - the raw details section additionally exposes the exact

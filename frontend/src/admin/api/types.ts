@@ -44,6 +44,11 @@ export interface AdminSignalDetail {
   principle: string;
   recommended_action: string;
   created_at: string | null;
+  /** Used as the optimistic-lock token when editing (see editSignalContent/
+   * editSignalCategory) - sent back as expected_updated_at so a concurrent
+   * edit since this was loaded is rejected (409) rather than silently
+   * overwritten. */
+  updated_at: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   published_at: string | null;

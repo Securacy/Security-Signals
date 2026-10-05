@@ -560,6 +560,21 @@ class UserRepository(BaseRepository):
         except Exception as e:
             raise DatabaseError(f"Error fetching users by role: {e}")
 
+    def get_active_users_by_role(self, role: str, limit: int = 1000) -> List[User]:
+        """Active users with this role - e.g. who the reviewer-notification
+        email goes to (active REVIEWERs only, never an inactive account).
+        get_by_role alone doesn't filter is_active; this combines both in
+        one query rather than making callers post-filter in Python."""
+        try:
+            return (
+                self.session.query(User)
+                .filter(User.role == role, User.is_active == True)
+                .limit(limit)
+                .all()
+            )
+        except Exception as e:
+            raise DatabaseError(f"Error fetching active users by role: {e}")
+
 
 # ============================================================================
 # AUDIT LOG REPOSITORY (Immutable - Application Level)

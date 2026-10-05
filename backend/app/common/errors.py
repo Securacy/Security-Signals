@@ -38,6 +38,14 @@ class NotFoundError(SecuritySignalsException):
     pass
 
 
+class StaleWriteError(SecuritySignalsException):
+    """A caller's optimistic-lock token (e.g. a signal's last-seen
+    updated_at) no longer matches the current row - someone else changed it
+    first. Maps to HTTP 409, same family as UniqueConstraintError."""
+
+    pass
+
+
 class AuthenticationError(SecuritySignalsException):
     """Authentication failed."""
 

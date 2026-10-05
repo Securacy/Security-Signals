@@ -34,7 +34,7 @@ function AdminRoot() {
   if (isRestoring) {
     return (
       <div className="adm-fullscreen-center">
-        <LoadingState label="Loading Security Signals Admin…" />
+        <LoadingState label="Loading Cyberscope…" />
       </div>
     );
   }

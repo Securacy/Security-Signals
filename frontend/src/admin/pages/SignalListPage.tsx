@@ -17,7 +17,6 @@ import { SIGNAL_STATUS_LABEL, SIGNAL_STATUS_TONE } from "../signalStatus";
 import { Badge } from "../components/Badge";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { LoadingState } from "../components/LoadingState";
 import { VisualPreview } from "../components/VisualPreview";
 import { Link, signalDetailPath } from "../router";
 
@@ -186,7 +185,7 @@ export function SignalListPage({ status }: { status: SignalListStatus }) {
         </div>
       )}
 
-      {anyLoading && <LoadingState label={`Loading ${copy.title.toLowerCase()}…`} />}
+      {anyLoading && <SkeletonCardGrid label={`Loading ${copy.title.toLowerCase()}…`} />}
       {firstError && <ErrorState message={firstError.message} />}
       {!anyLoading && !firstError && filtered.length === 0 && (
         <EmptyState
@@ -230,6 +229,29 @@ export function SignalListPage({ status }: { status: SignalListStatus }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** Skeleton placeholder matching the real card grid's shape - a calmer,
+ * more informative loading state than a bare spinner for a grid of
+ * content that's about to appear in roughly this layout. Purely CSS
+ * (shimmer via admin.css's @keyframes adm-shimmer), no real data. */
+function SkeletonCardGrid({ label }: { label: string }) {
+  return (
+    <div role="status" aria-label={label}>
+      <ul className="adm-signal-card-grid" aria-hidden="true">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="adm-signal-card adm-skeleton-card">
+            <div className="adm-skeleton-card__visual" />
+            <div className="adm-skeleton-card__body">
+              <div className="adm-skeleton-card__line adm-skeleton-card__line--short" />
+              <div className="adm-skeleton-card__line" />
+              <div className="adm-skeleton-card__line adm-skeleton-card__line--80" />
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

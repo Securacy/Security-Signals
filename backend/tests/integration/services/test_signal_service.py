@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.services.signal_service import SignalService
 from app.intelligence.schemas.signal_request import AISignalGenerationResponse, SecureDesignPrinciple
-from app.db.models import SignalStatus, SecurityCategoryType, User, UserRole
+from app.db.models import (
+    SignalStatus, SecurityCategoryType, User, UserRole,
+    Signal, SignalCategory, Evidence, SignalVisual, VisualStatus, AuditLog,
+)
 from app.common.errors import NotFoundError, DatabaseError
 
 
@@ -392,6 +395,97 @@ class TestSignalServiceRetrieval:
         assert len(published) >= 1
         assert any(s.id == signal1.id for s in published)
         assert not any(s.id == signal2.id for s in published)  # signal2 still DRAFT
+
+
+class TestPurgeDraftSignal:
+    """purge_draft_signal - development/QA data-reset tooling (see
+    purge_old_draft_signals.py). Only ever deletes a DRAFT signal's own
+    exclusively-owned rows, never a shared SecurityEvent/Article, never
+    audit history, and writes a new SIGNAL_DRAFT_PURGED audit entry rather
+    than modifying any existing one."""
+
+    def test_purge_deletes_the_signal_and_its_exclusively_owned_rows(self, db: Session, security_event, ai_response):
+        service = SignalService(db)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        signal_id = signal.id
+
+        category_count = db.query(SignalCategory).filter_by(signal_id=signal_id).count()
+        evidence_count = db.query(Evidence).filter_by(signal_id=signal_id).count()
+        assert category_count >= 1
+        assert evidence_count >= 1
+
+        service.purge_draft_signal(signal_id, actor_id=None)
+        db.commit()
+
+        assert db.query(Signal).filter_by(id=signal_id).one_or_none() is None
+        assert db.query(SignalCategory).filter_by(signal_id=signal_id).count() == 0
+        assert db.query(Evidence).filter_by(signal_id=signal_id).count() == 0
+
+    def test_purge_cascades_a_signal_visual_row_too(self, db: Session, security_event, ai_response):
+        service = SignalService(db)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        visual = SignalVisual(signal_id=signal.id, status=VisualStatus.FAILED, error="simulated")
+        db.add(visual)
+        db.commit()
+
+        service.purge_draft_signal(signal.id, actor_id=None)
+        db.commit()
+
+        assert db.query(SignalVisual).filter_by(signal_id=signal.id).one_or_none() is None
+
+    def test_purge_writes_a_new_audit_entry_rather_than_modifying_any_existing_one(
+        self, db: Session, security_event, ai_response
+    ):
+        service = SignalService(db)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        signal_id = signal.id
+        pre_existing_audit_count = db.query(AuditLog).count()
+
+        result = service.purge_draft_signal(signal_id, actor_id=None)
+        db.commit()
+
+        assert db.query(AuditLog).count() == pre_existing_audit_count + 1
+        entry = (
+            db.query(AuditLog)
+            .filter_by(resource_type="SIGNAL", resource_id=signal_id, action="SIGNAL_DRAFT_PURGED")
+            .one()
+        )
+        assert entry.changes["title"] == signal.title
+        assert result["title"] == signal.title
+
+    def test_purge_rejects_a_non_draft_signal(self, db: Session, security_event, ai_response):
+        service = SignalService(db)
+        signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        service.add_evidence(signal_id=signal.id, source_url="https://example.com", source_title="T", excerpt="E")
+        service.submit_for_review(signal.id)
+
+        with pytest.raises(ValueError) as exc:
+            service.purge_draft_signal(signal.id, actor_id=None)
+        assert "DRAFT" in str(exc.value)
+
+        # Never deleted - still there, still IN_REVIEW.
+        assert db.query(Signal).filter_by(id=signal.id).one().status == SignalStatus.IN_REVIEW
+
+    def test_purge_rejects_an_unknown_signal_id(self, db: Session):
+        service = SignalService(db)
+        with pytest.raises(NotFoundError):
+            service.purge_draft_signal(uuid4(), actor_id=None)
+
+    def test_purge_never_touches_a_security_event_shared_by_another_signal(
+        self, db: Session, security_event, ai_response
+    ):
+        service = SignalService(db)
+        signal_to_purge = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+        sibling_signal = service.create_signal_from_ai(event_id=security_event.id, ai_response=ai_response)
+
+        service.purge_draft_signal(signal_to_purge.id, actor_id=None)
+        db.commit()
+
+        assert db.query(Signal).filter_by(id=signal_to_purge.id).one_or_none() is None
+        assert db.query(Signal).filter_by(id=sibling_signal.id).one_or_none() is not None
+        from app.db.models import SecurityEvent
+        assert db.query(SecurityEvent).filter_by(id=security_event.id).one_or_none() is not None
 
 
 class _VisualLifecycleHarness:

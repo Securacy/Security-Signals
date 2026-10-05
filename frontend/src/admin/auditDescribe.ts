@@ -1,5 +1,6 @@
 import type { AuditEntry } from "./api/types";
 import { formatAction } from "./formatAction";
+import { categoryLabel } from "../widget/categoryLabels";
 
 /**
  * Turns a raw audit_log row (action constant + its real `changes` JSON,
@@ -39,6 +40,29 @@ function isFromTo(value: unknown): value is { from?: unknown; to?: unknown } {
   return typeof value === "object" && value !== null && ("from" in value || "to" in value);
 }
 
+/** Narrative lead sentence - "Amrutha approved "OAuth Audience Validation
+ * Bypass"." - matching the CTO's own example style directly, rather than
+ * a generic "Signal approved" + separate "Approved by"/"Signal" fact
+ * lines (the old shape - still used for the supplementary detail below). */
+function narrativeTitle(actorName: string, verb: string, signal: string): string {
+  return `${actorName} ${verb} "${signal}".`;
+}
+
+const FIELD_LABEL: Record<string, string> = {
+  title: "Title",
+  summary: "Security Event",
+  security_impact: "Why It Matters",
+  principle: "Secure Design Principle",
+  recommended_action: "Recommended Action",
+};
+
+const EDIT_PREVIEW_MAX_LENGTH = 140;
+
+function preview(value: unknown): string {
+  const s = str(value);
+  return s.length > EDIT_PREVIEW_MAX_LENGTH ? `${s.slice(0, EDIT_PREVIEW_MAX_LENGTH - 1)}…` : s;
+}
+
 export function describeAuditEntry(
   entry: AuditEntry,
   actorName: string,
@@ -51,39 +75,67 @@ export function describeAuditEntry(
   switch (entry.action) {
     case "SIGNAL_SUBMITTED_FOR_REVIEW":
       return {
-        title: "Signal submitted for review",
-        lines: [
-          { label: "Signal", value: signal },
-          { label: "Submitted by", value: actorName },
-          { label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` },
-        ],
+        title: narrativeTitle(actorName, "submitted for review", signal),
+        lines: [{ label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` }],
       };
     case "SIGNAL_APPROVED":
       return {
-        title: "Signal approved",
-        lines: [
-          { label: "Signal", value: signal },
-          { label: "Approved by", value: actorName },
-          { label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` },
-        ],
+        title: narrativeTitle(actorName, "approved", signal),
+        lines: [{ label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` }],
       };
     case "SIGNAL_REJECTED":
       return {
-        title: "Signal rejected",
+        title: narrativeTitle(actorName, "rejected", signal),
         lines: [
-          { label: "Signal", value: signal },
-          { label: "Rejected by", value: actorName },
           { label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` },
           ...(c.reason ? [{ label: "Review note", value: String(c.reason) }] : []),
         ],
       };
     case "SIGNAL_PUBLISHED":
       return {
-        title: "Signal published",
+        title: narrativeTitle(actorName, "published", signal),
+        lines: [{ label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` }],
+      };
+    case "SIGNAL_EDITED": {
+      const lines: AuditDetailLine[] = [];
+      for (const [field, diff] of Object.entries(c)) {
+        if (!isFromTo(diff)) continue;
+        const label = FIELD_LABEL[field] ?? field;
+        lines.push({ label: `${label} — previous`, value: preview(diff.from) });
+        lines.push({ label: `${label} — new`, value: preview(diff.to) });
+      }
+      return { title: narrativeTitle(actorName, "edited", signal), lines };
+    }
+    case "SIGNAL_CATEGORY_EDITED": {
+      const categoryChange = isFromTo(c.category) ? c.category : undefined;
+      const subcategoryChange = isFromTo(c.subcategory) ? c.subcategory : undefined;
+      const lines: AuditDetailLine[] = [];
+      if (categoryChange) {
+        lines.push({ label: "Category — previous", value: categoryLabel(str(categoryChange.from)) });
+        lines.push({ label: "Category — new", value: categoryLabel(str(categoryChange.to)) });
+      }
+      if (subcategoryChange) {
+        lines.push({ label: "Subcategory — previous", value: str(subcategoryChange.from) });
+        lines.push({ label: "Subcategory — new", value: str(subcategoryChange.to) });
+      }
+      return { title: narrativeTitle(actorName, "changed the category for", signal), lines };
+    }
+    case "SIGNAL_VISUAL_DELETED":
+      return {
+        title: narrativeTitle(actorName, "deleted the visual for", signal),
+        lines: [{ label: "Visual status before deletion", value: str(c.visual_status) }],
+      };
+    case "REVIEWER_NOTIFICATION_SENT":
+      return {
+        title: `Reviewer notification sent for "${signal}"`,
+        lines: [{ label: "Recipients", value: str(c.recipient_count) }],
+      };
+    case "REVIEWER_NOTIFICATION_FAILED":
+      return {
+        title: `Reviewer notification failed for "${signal}"`,
         lines: [
-          { label: "Signal", value: signal },
-          { label: "Published by", value: actorName },
-          { label: "Status changed", value: `${str(c.status_from)} → ${str(c.status_to)}` },
+          { label: "Reason", value: str(c.reason) },
+          ...(c.recipient_count !== undefined ? [{ label: "Recipients", value: str(c.recipient_count) }] : []),
         ],
       };
     case "SIGNAL_RETIRED_FROM_CURRENT":

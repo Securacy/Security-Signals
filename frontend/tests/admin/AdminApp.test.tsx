@@ -24,7 +24,7 @@ describe("AdminApp routing + RBAC guard", () => {
 
     render(<AdminApp />);
 
-    expect(screen.getByRole("heading", { name: "Security Signals" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cyberscope" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
   });
 
@@ -92,10 +92,11 @@ describe("AdminApp routing + RBAC guard", () => {
 
     render(<AdminApp />);
 
-    // The dashboard's own heading is a personalized, time-of-day greeting
-    // rather than a static "Dashboard" title - matching it loosely confirms
-    // the redirect landed on the dashboard without pinning the exact greeting.
-    expect(await screen.findByRole("heading", { level: 1, name: /good (morning|afternoon|evening), tester/i })).toBeInTheDocument();
+    // The dashboard's own heading is a personalized, randomly-picked
+    // session greeting (see greeting.ts) rather than a static "Dashboard"
+    // title - checking any level-1 heading exists confirms the redirect
+    // landed on the dashboard without pinning the exact greeting text.
+    expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
   });
 
   it("only shows the REVIEWER's own nav items, not Approved/Users/Audit", async () => {
@@ -104,7 +105,7 @@ describe("AdminApp routing + RBAC guard", () => {
 
     render(<AdminApp />);
 
-    await screen.findByRole("heading", { level: 1, name: /good (morning|afternoon|evening), tester/i });
+    await screen.findByRole("heading", { level: 1 });
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(nav).toHaveTextContent("In Review");
     expect(nav).toHaveTextContent("Drafts");

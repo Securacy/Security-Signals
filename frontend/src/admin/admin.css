@@ -15,6 +15,12 @@
   --adm-accent: #7e22ce;
   --adm-accent-strong: #6b21a8;
   --adm-accent-contrast: #ffffff;
+  /* Second accent - warm pink/magenta, used sparingly (gradients only: the
+   * dashboard greeting hero, the brand wordmark, primary-button
+   * background) so the palette reads as "premium with one deliberate
+   * flourish," never "every element is colorful." */
+  --adm-accent-2: #db2777;
+  --adm-gradient-brand: linear-gradient(135deg, var(--adm-accent) 0%, var(--adm-accent-2) 100%);
   /* Restrained blue/teal secondary - used sparingly (secondary data
    * viz, the "In Review" lifecycle stage, informational accents) so the
    * palette reads as considered rather than monochrome-purple. */
@@ -89,6 +95,8 @@
   --adm-accent: #c084fc;
   --adm-accent-strong: #a855f7;
   --adm-accent-contrast: #140a1f;
+  --adm-accent-2: #f472b6;
+  --adm-gradient-brand: linear-gradient(135deg, var(--adm-accent) 0%, var(--adm-accent-2) 100%);
   --adm-secondary: #22d3ee;
   --adm-secondary-bg: #072a30;
   --adm-success: #34d399;
@@ -220,16 +228,16 @@ a {
   background: var(--adm-surface);
 }
 
-.adm-topbar__brand {
-  font-weight: 700;
-  font-size: 1.0625rem;
-  text-decoration: none;
-  color: var(--adm-text);
+.adm-topbar--compact {
+  justify-content: flex-end;
+  padding: var(--adm-space-2) var(--adm-space-5);
 }
 
-.adm-topbar__brand-suffix {
-  color: var(--adm-accent-strong);
-  font-weight: 600;
+.adm-topbar__title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.0625rem;
+  color: var(--adm-text);
 }
 
 .adm-topbar__account {
@@ -246,6 +254,43 @@ a {
   border-right: 1px solid var(--adm-border);
   background: var(--adm-surface);
   padding: var(--adm-space-4) var(--adm-space-3);
+}
+
+.adm-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--adm-space-4) 0;
+  padding: 0 12px var(--adm-space-3);
+  border-bottom: 1px solid var(--adm-border);
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.adm-sidebar__brand:hover {
+  opacity: 0.85;
+}
+
+.adm-sidebar__brand-mark {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--adm-accent);
+}
+
+.adm-sidebar__brand-text {
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+  color: var(--adm-text);
+}
+
+.adm-sidebar__brand-accent {
+  background: var(--adm-gradient-brand);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .adm-sidebar__list {
@@ -304,6 +349,24 @@ a {
   }
 }
 
+/* Every top-level page gets a subtle, fast entrance - never on every
+ * re-render (reloadToken bumps don't remount this element), only on
+ * actually navigating to a new page. */
+.adm-page {
+  animation: adm-page-in 0.2s ease-out;
+}
+
+@keyframes adm-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Page header */
 
 .adm-page__header {
@@ -336,8 +399,8 @@ a {
 .adm-card {
   background: var(--adm-surface);
   border: 1px solid var(--adm-border);
-  border-radius: var(--adm-radius);
-  box-shadow: var(--adm-shadow);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(28, 21, 38, 0.07);
   padding: var(--adm-space-4);
 }
 
@@ -367,7 +430,11 @@ a {
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+
+.adm-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .adm-btn:disabled {
@@ -753,7 +820,10 @@ a {
   align-items: center;
   justify-content: center;
   padding: var(--adm-space-4);
-  background: var(--adm-surface-2);
+  background:
+    radial-gradient(circle at 15% 10%, color-mix(in srgb, var(--adm-accent) 10%, transparent) 0%, transparent 45%),
+    radial-gradient(circle at 85% 90%, color-mix(in srgb, var(--adm-accent-2) 8%, transparent) 0%, transparent 45%),
+    var(--adm-surface-2);
 }
 
 .adm-login__card {
@@ -761,15 +831,17 @@ a {
   max-width: 360px;
   background: var(--adm-surface);
   border: 1px solid var(--adm-border);
-  border-radius: var(--adm-radius);
-  box-shadow: var(--adm-shadow);
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(28, 21, 38, 0.08);
   padding: var(--adm-space-6) var(--adm-space-5);
 }
 
 .adm-login__title {
   margin: 0 0 4px 0;
-  font-size: 1.25rem;
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 1.75rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .adm-login__subtitle {
@@ -830,6 +902,18 @@ a {
   border-radius: var(--adm-radius-sm);
   margin-bottom: var(--adm-space-4);
   font-size: 0.9375rem;
+  animation: adm-banner-in 0.2s ease-out;
+}
+
+@keyframes adm-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .adm-banner--success {
@@ -865,6 +949,7 @@ a {
   justify-content: center;
   padding: var(--adm-space-4);
   z-index: 50;
+  animation: adm-backdrop-in 0.15s ease-out;
 }
 
 .adm-dialog {
@@ -875,6 +960,27 @@ a {
   border-radius: var(--adm-radius);
   box-shadow: 0 12px 32px rgba(15, 10, 24, 0.25);
   padding: var(--adm-space-5);
+  animation: adm-dialog-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes adm-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes adm-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .adm-dialog__title {
@@ -1335,25 +1441,6 @@ a {
   box-shadow: 0 2px 8px -4px rgba(126, 34, 206, 0.18);
 }
 
-/* Dashboard: personalized greeting header */
-
-.adm-greeting {
-  margin-bottom: var(--adm-space-5);
-}
-
-.adm-greeting__title {
-  margin: 0 0 4px 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.adm-greeting__subtitle {
-  margin: 0;
-  color: var(--adm-text-muted);
-  font-size: 0.9375rem;
-}
-
 /* Dashboard: "Needs your attention" - compact stat strip, never a giant
  * dashboard card. Each tile is a real count from a real endpoint; a tile
  * is simply omitted when its role has no such action (never a fake 0). */
@@ -1785,6 +1872,40 @@ a {
   line-height: 1.3;
 }
 
+.adm-detail-page__title-input {
+  width: 100%;
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 6px 10px;
+}
+
+.adm-detail-page__visual-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.adm-edit-category-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--adm-space-2);
+}
+
+.adm-edit-category-row .adm-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.adm-detail-section__edit-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.adm-detail-section__heading label {
+  cursor: text;
+}
+
 /* The action area is a dedicated toolbar pinned to the header row, never
  * inline with the visual/content below - on narrow screens it wraps below
  * the title instead of ever overlapping the visual card that follows. */
@@ -1885,20 +2006,91 @@ a {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--adm-space-2);
+  gap: var(--adm-space-3);
 }
 
 .adm-evidence-list__item {
-  padding: var(--adm-space-2) var(--adm-space-3);
+  padding: var(--adm-space-3) var(--adm-space-4);
   border: 1px solid var(--adm-border);
-  border-radius: var(--adm-radius-sm);
+  border-radius: var(--adm-radius);
+  background: var(--adm-surface);
   font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  /* Long URLs/titles in excerpt content must never force horizontal
+   * overflow of the card or page. */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
+.adm-evidence-list__item:hover {
+  border-color: var(--adm-accent);
+  box-shadow: 0 2px 10px -6px rgba(28, 21, 38, 0.18);
+}
+
+.adm-evidence-list__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--adm-space-2);
+  flex-wrap: wrap;
+}
+
+.adm-evidence-list__title {
+  font-weight: 600;
+  color: var(--adm-text);
+  text-decoration: none;
+}
+
+.adm-evidence-list__title[href]:hover {
+  color: var(--adm-accent-strong);
+  text-decoration: underline;
+}
+
+.adm-evidence-list__date {
+  flex-shrink: 0;
+  color: var(--adm-text-muted);
+  font-size: 0.75rem;
+}
+
+/* The sanitized excerpt (see admin/sanitizeHtml.ts + components/SafeHtml.tsx)
+ * renders real <p>/<br>/<b>/<ul>/<a> formatting, not literal tag text - give
+ * it readable spacing/line-height rather than one dense block. */
 .adm-evidence-list__excerpt {
-  margin: 4px 0 0 0;
+  margin: var(--adm-space-2) 0 0 0;
   color: var(--adm-text-muted);
   font-size: 0.8125rem;
+  line-height: 1.6;
+  max-width: 68ch;
+}
+
+.adm-evidence-list__excerpt p {
+  margin: 0 0 var(--adm-space-2) 0;
+}
+
+.adm-evidence-list__excerpt p:last-child {
+  margin-bottom: 0;
+}
+
+.adm-evidence-list__excerpt ul,
+.adm-evidence-list__excerpt ol {
+  margin: 0 0 var(--adm-space-2) 1.25em;
+}
+
+.adm-evidence-list__excerpt a {
+  color: var(--adm-accent-strong);
+}
+
+.adm-evidence-list__view-link {
+  display: inline-block;
+  margin-top: var(--adm-space-2);
+  color: var(--adm-accent-strong);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.adm-evidence-list__view-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 900px) {
@@ -1977,6 +2169,50 @@ a {
   border-color: var(--adm-accent);
   box-shadow: 0 6px 18px -8px rgba(28, 21, 38, 0.18);
   transform: translateY(-1px);
+}
+
+/* Skeleton loading (SignalListPage) - a shimmering placeholder shaped like
+ * the real card grid, rather than a bare spinner. */
+.adm-skeleton-card {
+  cursor: default;
+}
+
+.adm-skeleton-card__visual {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: var(--adm-surface-2);
+}
+
+.adm-skeleton-card__body {
+  padding: var(--adm-space-3) var(--adm-space-4) var(--adm-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adm-skeleton-card__line {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--adm-surface-2) 25%, var(--adm-border) 50%, var(--adm-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: adm-shimmer 1.4s ease-in-out infinite;
+}
+
+.adm-skeleton-card__line--short {
+  width: 45%;
+}
+
+.adm-skeleton-card__line--80 {
+  width: 80%;
+}
+
+@keyframes adm-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .adm-signal-card__link {
@@ -2068,10 +2304,13 @@ a {
 
 .adm-greeting {
   position: relative;
+  margin-bottom: var(--adm-space-5);
   padding: var(--adm-space-5) var(--adm-space-5) var(--adm-space-4);
-  border-radius: var(--adm-radius);
+  border-radius: 16px;
   border: 1px solid var(--adm-border);
-  background: var(--adm-surface);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--adm-accent-2) 6%, transparent) 0%, transparent 60%),
+    var(--adm-surface);
   overflow: hidden;
 }
 
@@ -2087,9 +2326,19 @@ a {
   opacity: 0.6;
 }
 
-.adm-greeting__title,
+.adm-greeting__title {
+  position: relative;
+  margin: 0 0 4px 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
 .adm-greeting__subtitle {
   position: relative;
+  margin: 0;
+  color: var(--adm-text-muted);
+  font-size: 0.9375rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -86,6 +86,43 @@ export function publishSignal(fetcher: AuthorizedFetch, id: string): Promise<Adm
   return fetcher<AdminSignalActionResult>(`/api/v1/signals/${id}/publish`, { method: "POST" });
 }
 
+export interface EditSignalContentBody {
+  title?: string;
+  summary?: string;
+  security_impact?: string;
+  principle?: string;
+  recommended_action?: string;
+  /** Optimistic-lock token - the updated_at this caller last loaded.
+   * Omitted fields are left untouched server-side; a mismatch here is a
+   * 409 (ApiError.status === 409), not a 4xx validation error. */
+  expected_updated_at?: string | null;
+}
+
+/** PATCH /api/v1/signals/{id} - edit DRAFT/IN_REVIEW content fields. REVIEWER/ADMIN. */
+export function editSignalContent(
+  fetcher: AuthorizedFetch, id: string, body: EditSignalContentBody,
+): Promise<AdminSignalDetail> {
+  return fetcher<AdminSignalDetail>(`/api/v1/signals/${id}`, { method: "PATCH", body });
+}
+
+export interface EditSignalCategoryBody {
+  category: string;
+  subcategory?: string | null;
+  expected_updated_at?: string | null;
+}
+
+/** PATCH /api/v1/signals/{id}/category - correct DRAFT/IN_REVIEW category/subcategory. REVIEWER/ADMIN. */
+export function editSignalCategory(
+  fetcher: AuthorizedFetch, id: string, body: EditSignalCategoryBody,
+): Promise<AdminSignalDetail> {
+  return fetcher<AdminSignalDetail>(`/api/v1/signals/${id}/category`, { method: "PATCH", body });
+}
+
+/** DELETE /api/v1/signals/{id}/visual - remove a signal's generated visual. REVIEWER/ADMIN. Never regenerates. */
+export function deleteSignalVisual(fetcher: AuthorizedFetch, id: string): Promise<AdminSignalDetail> {
+  return fetcher<AdminSignalDetail>(`/api/v1/signals/${id}/visual`, { method: "DELETE" });
+}
+
 /** GET /api/v1/users - paginated user list. ADMIN only. */
 export function fetchUsers(
   fetcher: AuthorizedFetch,

@@ -16,7 +16,7 @@ import { formatRelativeTime } from "../../widget/formatRelativeTime";
 import { formatAction } from "../formatAction";
 import { auditActionTone } from "../auditActionTone";
 import { getAdminConfig } from "../config";
-import { timeOfDayGreeting } from "../greeting";
+import { getSessionGreeting } from "../greeting";
 import { SIGNAL_STATUS_LABEL } from "../signalStatus";
 import { useLoad, type LoadState } from "../useLoad";
 import { Card } from "../components/Card";
@@ -100,10 +100,10 @@ export function DashboardPage() {
     <div className="adm-page">
       <header className="adm-greeting">
         <div className="adm-greeting__pattern" aria-hidden="true" />
-        <h1 className="adm-greeting__title">
-          {timeOfDayGreeting()}, {user!.username} 👋
-        </h1>
-        <p className="adm-greeting__subtitle">{ROLE_SUBTITLE[role] ?? ROLE_SUBTITLE.viewer}</p>
+        <h1 className="adm-greeting__title">{getSessionGreeting()}</h1>
+        <p className="adm-greeting__subtitle">
+          {user!.username} — {ROLE_SUBTITLE[role] ?? ROLE_SUBTITLE.viewer}
+        </p>
       </header>
 
       {isReviewerOrAdmin && (

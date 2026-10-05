@@ -301,7 +301,12 @@ describe("UsersPage", () => {
     expect(screen.queryByText("[object Object]")).not.toBeInTheDocument();
   });
 
-  it("shows the real authentication method per user: local, Microsoft Entra, or both", async () => {
+  it("never shows the 'Password managed' / 'Microsoft Entra managed' auth-method labels, but role and active status remain visible", async () => {
+    // The auth-method badges were a deliberate removal (simplify the Users
+    // page presentation) - this is a regression test for that removal, not
+    // a stale leftover. The underlying has_local_credential/entra_linked
+    // booleans still drive real behavior (see the "offers no local-password
+    // actions..." test below) - only their badge DISPLAY is gone.
     seedSession("u-self");
     vi.stubGlobal(
       "fetch",
@@ -315,10 +320,15 @@ describe("UsersPage", () => {
     const localRow = rows.find((row) => row.textContent?.includes("current-admin"))!;
     const entraRow = rows.find((row) => row.textContent?.includes("entra-person"))!;
 
-    expect(within(localRow).getByText("Password managed")).toBeInTheDocument();
+    expect(within(localRow).queryByText("Password managed")).not.toBeInTheDocument();
     expect(within(localRow).queryByText("Microsoft Entra managed")).not.toBeInTheDocument();
-    expect(within(entraRow).getByText("Microsoft Entra managed")).toBeInTheDocument();
     expect(within(entraRow).queryByText("Password managed")).not.toBeInTheDocument();
+    expect(within(entraRow).queryByText("Microsoft Entra managed")).not.toBeInTheDocument();
+
+    // Role and active/inactive status are still clearly visible per user.
+    expect(within(localRow).getByText("Admin")).toBeInTheDocument();
+    expect(within(localRow).getByText("Active")).toBeInTheDocument();
+    expect(within(entraRow).getByText("Active")).toBeInTheDocument();
   });
 
   it("offers no local-password actions for an Entra-only user, and no self-reset for the current admin", async () => {

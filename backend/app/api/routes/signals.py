@@ -4,20 +4,21 @@ Phase 5: Public API for published signals with evidence and categories
 Phase 6: Protected endpoints for draft/in-review signal management + authentication
 """
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from uuid import UUID
 import logging
 
 from app.db.connection import get_db
-from app.db.models import User, SignalStatus, SecurityCategoryType, VisualStatus, SignalVisual
+from app.db.models import User, SignalStatus, SecurityCategoryType, AISecuritySubcategory, VisualStatus, SignalVisual
 from app.repositories import SignalRepository, EvidenceRepository, SignalCategoryRepository
 from app.api.dependencies import require_reviewer, require_admin
 from app.services.signal_service import SignalService
-from app.common.errors import NotFoundError
+from app.common.errors import NotFoundError, StaleWriteError
 from app.taxonomy import UnknownPublicCategoryError, internal_categories_to_public, public_category_to_internal
 
 logger = logging.getLogger(__name__)
@@ -410,11 +411,22 @@ def get_signal_detail(
     """
     sid = _parse_signal_id(signal_id)
     signal_repo = SignalRepository(db)
-    evidence_repo = EvidenceRepository(db)
 
     signal = signal_repo.get_by_id(sid)
     if not signal:
         raise HTTPException(status_code=404, detail="Signal not found")
+
+    return _build_full_signal_detail(db, signal)
+
+
+def _build_full_signal_detail(db: Session, signal) -> dict:
+    """Full admin detail shape for ONE signal in any status - shared by
+    GET /{signal_id} and every mutation route below (edit, category edit,
+    visual delete) so each returns the same up-to-date shape the frontend
+    already knows how to render, without duplicating this assembly per
+    route. Never triggers visual generation - read-only."""
+    evidence_repo = EvidenceRepository(db)
+    sid = signal.id
 
     categories_data = _categories_by_signal(db, [sid]).get(sid, [])
     evidence_data = [
@@ -425,7 +437,7 @@ def get_signal_detail(
             "excerpt": ev.excerpt,
             "created_at": ev.created_at.isoformat() if ev.created_at else None,
         }
-        for ev in evidence_repo.get_by_signal(signal.id)
+        for ev in evidence_repo.get_by_signal(sid)
     ]
     visual_fields = _visual_fields_by_signal(db, [sid]).get(sid, _NO_VISUAL)
 
@@ -438,6 +450,7 @@ def get_signal_detail(
         "principle": signal.principle,
         "recommended_action": signal.recommended_action,
         "created_at": signal.created_at.isoformat() if signal.created_at else None,
+        "updated_at": signal.updated_at.isoformat() if signal.updated_at else None,
         "reviewed_by": str(signal.reviewed_by) if signal.reviewed_by else None,
         "reviewed_at": signal.reviewed_at.isoformat() if signal.reviewed_at else None,
         "published_at": signal.published_at.isoformat() if signal.published_at else None,
@@ -576,3 +589,141 @@ def publish_signal_route(
 
     logger.info(f"signal_published: user={current_user.username}, signal={sid}")
     return _serialize_signal_detail(signal)
+
+
+# Human-in-the-loop editing (DRAFT/IN_REVIEW only - enforced in
+# SignalService, not just here) and visual moderation. Same require_reviewer
+# gate and ID-parsing/status-translation pattern as the lifecycle routes
+# above; the lifecycle state machine and audit logging live entirely in
+# SignalService.
+
+class EditSignalContentRequest(BaseModel):
+    """Every field optional - only the ones a caller actually wants to
+    change need be sent; omitted fields are left untouched (see
+    SignalService.edit_signal_content). Length limits mirror the real
+    Signal columns (title/principle: String(500) in app/db/models.py;
+    summary/security_impact/recommended_action are Text columns with no DB
+    limit, capped here at a generous, abuse-resistant size)."""
+    title: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    summary: Optional[str] = Field(default=None, min_length=1, max_length=10000)
+    security_impact: Optional[str] = Field(default=None, min_length=1, max_length=10000)
+    principle: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    recommended_action: Optional[str] = Field(default=None, min_length=1, max_length=10000)
+    # The updated_at this caller last saw (from GET /{signal_id}) - optional
+    # optimistic-lock token; a concurrent edit since then is rejected (409)
+    # rather than silently overwritten. See SignalService._check_not_stale.
+    expected_updated_at: Optional[datetime] = None
+
+
+@router.patch("/{signal_id}", response_model=dict)
+def edit_signal_content_route(
+    signal_id: str,
+    body: EditSignalContentRequest,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    """Edit a DRAFT/IN_REVIEW signal's AI-generated content fields -
+    REVIEWER/ADMIN only. APPROVED/PUBLISHED content stays immutable."""
+    sid = _parse_signal_id(signal_id)
+    updates = body.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
+    service = SignalService(db)
+    try:
+        signal = service.edit_signal_content(
+            sid, actor_id=current_user.id, updates=updates, expected_updated_at=body.expected_updated_at,
+        )
+    except NotFoundError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Signal not found")
+    except StaleWriteError as e:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(f"signal_edited: user={current_user.username}, signal={sid}, fields={list(updates.keys())}")
+    return _build_full_signal_detail(db, signal)
+
+
+class EditSignalCategoryRequest(BaseModel):
+    """category/subcategory are validated against the same controlled
+    taxonomy the AI-generation path already enforces (enum membership is
+    automatic via Pydantic; the AI_SECURITY-only subcategory rule is
+    enforced below, mirroring AISignalGenerationResponse's own
+    validate_ai_subcategory)."""
+    category: SecurityCategoryType
+    # validate_default=True: without it, Pydantic v2 skips field validators
+    # entirely when a field is omitted and falls back to its default -
+    # which would silently skip the AI_SECURITY-requires-subcategory check
+    # below for exactly the case that matters most (the field not sent).
+    subcategory: Optional[AISecuritySubcategory] = Field(default=None, validate_default=True)
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator("subcategory")
+    @classmethod
+    def validate_subcategory_matches_category(cls, v, info):
+        category = info.data.get("category")
+        if category == SecurityCategoryType.AI_SECURITY:
+            if v is None:
+                raise ValueError("subcategory is required when category is ai_security")
+        elif v is not None:
+            raise ValueError("subcategory is only valid when category is ai_security")
+        return v
+
+
+@router.patch("/{signal_id}/category", response_model=dict)
+def edit_signal_category_route(
+    signal_id: str,
+    body: EditSignalCategoryRequest,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    """Correct a DRAFT/IN_REVIEW signal's category/subcategory -
+    REVIEWER/ADMIN only. Flips the category's assigned_by to HUMAN."""
+    sid = _parse_signal_id(signal_id)
+    service = SignalService(db)
+    try:
+        signal = service.edit_signal_category(
+            sid,
+            actor_id=current_user.id,
+            category=body.category,
+            subcategory=body.subcategory.value if body.subcategory else None,
+            expected_updated_at=body.expected_updated_at,
+        )
+    except NotFoundError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Signal not found")
+    except StaleWriteError as e:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(f"signal_category_edited: user={current_user.username}, signal={sid}")
+    return _build_full_signal_detail(db, signal)
+
+
+@router.delete("/{signal_id}/visual", response_model=dict)
+def delete_signal_visual_route(
+    signal_id: str,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    """Delete a signal's generated visual - REVIEWER/ADMIN only. Removes
+    only the SignalVisual row (and its file, best-effort); never the
+    Signal itself, never evidence/categories/events, never regenerates."""
+    sid = _parse_signal_id(signal_id)
+    service = SignalService(db)
+    try:
+        service.delete_visual(sid, actor_id=current_user.id)
+    except NotFoundError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Signal not found")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+    signal = SignalRepository(db).get_by_id(sid)
+    logger.info(f"signal_visual_deleted: user={current_user.username}, signal={sid}")
+    return _build_full_signal_detail(db, signal)

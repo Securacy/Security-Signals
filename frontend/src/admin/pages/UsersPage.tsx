@@ -209,8 +209,6 @@ export function UsersPage() {
                     <div className="adm-user-row__status">
                       <Badge tone={ROLE_TONE[user.role]}>{ROLE_LABEL[user.role]}</Badge>
                       <Badge tone={user.is_active ? "success" : "danger"}>{user.is_active ? "Active" : "Inactive"}</Badge>
-                      {user.has_local_credential && <Badge tone="neutral">Password managed</Badge>}
-                      {user.entra_linked && <Badge tone="info">Microsoft Entra managed</Badge>}
                     </div>
                     <div className="adm-user-row__actions">
                       <Button variant="secondary" onClick={() => openRoleChange(user)}>

@@ -46,6 +46,17 @@ describe("getDrawerLayout", () => {
     expect(layout).toMatchObject({ top: "0", left: "0", right: "0", bottom: "0", width: "100%", height: "100%" });
   });
 
+  it("widens the desktop panel while expanded, keeping its corner anchoring", () => {
+    const expanded = getDrawerLayout("bottom-right", 1280, true);
+    expect(expanded.width).toBe("min(720px, calc(100vw - 48px))");
+    expect(expanded).toMatchObject({ bottom: "88px", right: "24px" });
+    expect(getDrawerLayout("bottom-right", 1280, false).width).toBe("400px");
+  });
+
+  it("keeps the full-screen mobile layout even when expanded", () => {
+    expect(getDrawerLayout("bottom-right", 375, true)).toMatchObject({ width: "100%", height: "100%" });
+  });
+
   it("anchors a fixed-size panel per position on desktop widths", () => {
     expect(getDrawerLayout("bottom-right", 1280)).toMatchObject({ bottom: "88px", right: "24px" });
     expect(getDrawerLayout("bottom-left", 1280)).toMatchObject({ bottom: "88px", left: "24px" });
@@ -81,6 +92,17 @@ describe("isValidMessageFromWidget", () => {
     expect(isValidMessageFromWidget(event as any, "https://widget.example", window)).toBe(false);
   });
 
+  it("accepts the expand and collapse messages from its own iframe", () => {
+    for (const type of ["security-signals:expand", "security-signals:collapse"]) {
+      const event = {
+        origin: "https://widget.example",
+        source: window,
+        data: { source: "security-signals-widget", type },
+      };
+      expect(isValidMessageFromWidget(event as any, "https://widget.example", window)).toBe(true);
+    }
+  });
+
   it("rejects an unrecognized message type", () => {
     const event = {
       origin: "https://widget.example",
@@ -110,7 +132,7 @@ describe("createWidget", () => {
 
   it("renders a launcher button, closed by default", () => {
     build();
-    const button = document.querySelector("button[aria-label='Open Security Signals']");
+    const button = document.querySelector("button[aria-label='Open Cyberscope']");
     expect(button).not.toBeNull();
     expect(button).toHaveAttribute("aria-expanded", "false");
     expect(widget.isOpen()).toBe(false);
@@ -118,7 +140,7 @@ describe("createWidget", () => {
 
   it("opens on first launcher click and creates the iframe with the right query params", () => {
     build();
-    const button = document.querySelector("button[aria-label='Open Security Signals']") as HTMLButtonElement;
+    const button = document.querySelector("button[aria-label='Open Cyberscope']") as HTMLButtonElement;
 
     button.click();
 
@@ -135,7 +157,7 @@ describe("createWidget", () => {
 
   it("toggles closed on a second launcher click", () => {
     build();
-    const button = document.querySelector("button[aria-label='Open Security Signals']") as HTMLButtonElement;
+    const button = document.querySelector("button[aria-label='Open Cyberscope']") as HTMLButtonElement;
 
     button.click();
     button.click();
@@ -211,7 +233,7 @@ describe("createWidget", () => {
     widget.open();
     widget.destroy();
 
-    expect(document.querySelector("button[aria-label='Open Security Signals']")).toBeNull();
+    expect(document.querySelector("button[aria-label='Open Cyberscope']")).toBeNull();
     expect(document.querySelector("iframe")).toBeNull();
   });
 });

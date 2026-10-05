@@ -18,7 +18,11 @@
 
 export const SECURITY_SIGNALS_MESSAGE_SOURCE = "security-signals-widget";
 
-export type OutgoingMessageType = "security-signals:ready" | "security-signals:close";
+export type OutgoingMessageType =
+  | "security-signals:ready"
+  | "security-signals:close"
+  | "security-signals:expand"
+  | "security-signals:collapse";
 
 export interface OutgoingMessage {
   source: typeof SECURITY_SIGNALS_MESSAGE_SOURCE;

@@ -17,3 +17,4 @@ slowapi==0.1.9
 structlog==23.2.0
 PyJWT>=2.8.0
 cryptography>=42.0.0
+resend==2.49.0

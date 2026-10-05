@@ -203,6 +203,36 @@ class Settings(BaseSettings):
     # break-glass). Set false to make Entra the only way in.
     local_login_enabled: bool = Field(default=True)
 
+    # Reviewer email notification (submit-for-review) via Resend.
+    # resend_api_key is SecretStr (never in repr()/logs, never sent to the
+    # frontend) - same discipline as entra_client_secret above. Both values
+    # are already provisioned in the real .env; nothing here is a new
+    # reviewer-notification-specific address/recipient setting - only the
+    # transport credentials, matching exactly what the organization already
+    # configured. See app/integrations/resend_mail.py.
+    resend_api_key: Optional[SecretStr] = Field(default=None)
+    resend_from_email: str = Field(default="hello@securacy.ai")
+
+    # Dispatch kill-switch for the reviewer-notification background job -
+    # same role/shape as visual_generation_enabled below (an operational
+    # on/off toggle, not an email address/recipient setting). Defaults ON
+    # now that real Resend credentials exist (unlike the old Graph flag,
+    # which had to default off pending admin consent that was never
+    # granted). tests/conftest.py's autouse fixture forces this off for the
+    # whole suite by default, the same way it already does for
+    # VISUAL_GENERATION_ENABLED, so routine test runs never place a real
+    # call to Resend; only the tests that specifically exercise this
+    # feature re-enable it locally.
+    reviewer_notification_enabled: bool = Field(default=True)
+
+    # ORG_APPROVAL_EMAIL is already present in the real .env for a
+    # separate, existing organization-approval flow - NOT read by the
+    # reviewer-notification code above (see app/services/
+    # notification_service.py). Declared here only so Settings() can load
+    # the real .env without error (pydantic-settings rejects undeclared
+    # env vars by default); intentionally unused otherwise.
+    org_approval_email: str = Field(default="hello@securacy.ai")
+
     # Scheduler (Phase 4): weekly automated ingestion. Defaults on for
     # normal operation; the app's test suite never triggers FastAPI's
     # startup event (TestClient(app) isn't used as a context manager here),

@@ -1,4 +1,5 @@
 """Signal service layer - business logic for signal lifecycle."""
+from pathlib import Path
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ import logging
 
 from app.db.models import (
     Signal, SignalStatus, SignalCategory, Evidence, SecurityEvent,
-    SecurityCategoryType, SignalVisual, User
+    SecurityCategoryType, SignalVisual, AssignmentMethod, User
 )
 from app.repositories import (
     SignalRepository, SignalCategoryRepository, EvidenceRepository,
@@ -16,7 +17,7 @@ from app.repositories import (
 )
 from app.intelligence.schemas.signal_request import AISignalGenerationResponse
 from app.intelligence.visual_service import ThreatVisualService, create_pending_visual
-from app.common.errors import NotFoundError, DatabaseError
+from app.common.errors import NotFoundError, DatabaseError, StaleWriteError
 from app.ingestion.freshness_policy import FreshnessPolicy
 from app.taxonomy import internal_categories_to_public
 
@@ -30,6 +31,21 @@ _PLACEHOLDER_RECOMMENDED_ACTION = "Review and validate signal"
 
 # Matches Signal.principle: Column(String(500), ...) in app/db/models.py.
 _SIGNAL_PRINCIPLE_MAX_LENGTH = 500
+
+# Human-in-the-loop content editing (SignalService.edit_signal_content):
+# the AI-generated fields a reviewer/admin may correct before publication.
+# Deliberately excludes status/timestamps/ids - those are lifecycle-
+# controlled, never edited directly.
+_EDITABLE_CONTENT_FIELDS = ("title", "summary", "security_impact", "principle", "recommended_action")
+
+# A signal's structured content/category is only ever editable while it's
+# still under human review - once APPROVED/PUBLISHED, its content is
+# immutable here; the existing review workflow (reject/resubmit) is the
+# only safe path to change already-approved or already-public content.
+# (Visual deletion is NOT gated by this - an inappropriate image can need
+# removing at any lifecycle stage, including after publication; see
+# delete_visual.)
+_EDITABLE_SIGNAL_STATUSES = (SignalStatus.DRAFT, SignalStatus.IN_REVIEW)
 
 
 def _map_principle_and_recommended_action(
@@ -286,13 +302,72 @@ class SignalService:
                 status=SignalStatus.IN_REVIEW
             )
             self.session.flush()
+            # Best-effort, after-commit side effect - never fails or
+            # delays this request itself; see
+            # _queue_reviewer_notification_after_commit's own docstring
+            # for why this has to be an after_commit listener rather than
+            # a direct call here (this method only ever flushes, the
+            # actual commit happens later at the request boundary).
+            self._queue_reviewer_notification_after_commit(signal_id, actor_id)
             logger.info(f"Moved signal {signal_id} to IN_REVIEW")
             return updated
         except Exception as e:
             self.session.rollback()
             logger.error(f"Failed to submit signal for review: {e}")
             raise DatabaseError(f"Failed to submit for review: {e}")
-    
+
+    def _queue_reviewer_notification_after_commit(self, signal_id: UUID, actor_id: Optional[UUID]) -> None:
+        """Registers a one-shot SQLAlchemy `after_commit` listener that
+        queues the reviewer-notification email once submit_for_review's
+        own transaction has actually committed - same reasoning as
+        _queue_visual_generation_after_commit (this service only ever
+        flushes; the real commit happens later, outside this method, at
+        the request boundary, so there is no synchronous "after the
+        commit" point inside this method to hook otherwise).
+
+        The actual send is handed to notification_service's own small
+        background worker pool (submit_reviewer_notification_in_background,
+        which opens its own fresh DB session on that worker thread, same
+        shape as app/scheduler/visual_generation_job.py's background path)
+        rather than run inline here - one HTTP call to Resend must never
+        add latency to this request's response, on top of never being able
+        to roll back its already-committed transition. Any failure is
+        caught and logged deep inside that pipeline (and recorded as a
+        REVIEWER_NOTIFICATION_FAILED audit entry) - it can never resurface
+        here as an exception, since this callback runs inside the caller's
+        own session.commit() call.
+        """
+        session = self.session
+        already_fired = False
+
+        def _on_commit(_sess: Session) -> None:
+            nonlocal already_fired
+            if already_fired:
+                return
+            already_fired = True
+            try:
+                # No-op (no background thread, no second DB connection, no
+                # audit entry) while the feature is disabled - forced off
+                # for the whole test suite by tests/conftest.py's autouse
+                # fixture (same mechanism as VISUAL_GENERATION_ENABLED), so
+                # routine test runs never place a real call to Resend even
+                # though real credentials exist in the real .env. Checking
+                # this BEFORE dispatching, not inside the dispatched work,
+                # is what keeps every other test's submit_for_review call
+                # (there are many, across many files, none of them about
+                # notifications) from silently spinning up a real
+                # background thread + a real second DB connection it never
+                # asked for.
+                from app.config import get_settings
+                if not get_settings().reviewer_notification_enabled:
+                    return
+                from app.services.notification_service import submit_reviewer_notification_in_background
+                submit_reviewer_notification_in_background(signal_id, actor_id)
+            except Exception as e:
+                logger.warning(f"reviewer_notification_queue_failed signal_id={signal_id} error={e}")
+
+        event.listen(session, "after_commit", _on_commit)
+
     def approve_signal(
         self,
         signal_id: UUID,
@@ -717,3 +792,276 @@ class SignalService:
         except Exception as e:
             logger.error(f"Failed to get signal: {e}")
             raise DatabaseError(f"Failed to retrieve signal: {e}")
+
+    def purge_draft_signal(self, signal_id: UUID, actor_id: Optional[UUID] = None) -> dict:
+        """
+        Permanently remove a DRAFT signal - development/QA data-reset
+        tooling (see purge_old_draft_signals.py), never exposed through an
+        HTTP route. Mirrors UserService.purge_inactive_user's pattern:
+        safe by construction, not by convention.
+
+        Only ever deletes rows exclusively owned by this one signal -
+        SignalCategory, Evidence, and SignalVisual all cascade via the real
+        DB foreign keys (ondelete=CASCADE) AND the ORM relationship cascade
+        (cascade="all, delete-orphan" on Signal.categories/evidence/visual),
+        so a single session.delete(signal) removes exactly this signal's
+        own rows and nothing shared. The evidence immutability trigger
+        (migration 006) explicitly permits cascade deletion of evidence via
+        its parent Signal - it only blocks UPDATE and a direct, non-cascade
+        DELETE. Never touches SecurityEvent or Article (both can be
+        referenced by other signals/events) or any other signal's rows -
+        Signal.event_id is ON DELETE RESTRICT, so the database itself would
+        refuse to let a shared SecurityEvent be deleted while any signal
+        still references it, but this method never attempts that anyway.
+
+        The audit entry for the purge is written FIRST, with a snapshot of
+        the signal's identity, so there's a human-readable record of what
+        was removed even after the row is gone - audit_log itself is never
+        modified (its DELETE/UPDATE are blocked unconditionally at the DB
+        level by the same trigger).
+
+        Raises:
+            NotFoundError: If signal_id doesn't exist.
+            ValueError: If the signal is not in DRAFT status - only DRAFT
+                signals may ever be purged by this operation.
+        """
+        signal = self.signal_repo.get_by_id(signal_id)
+        if not signal:
+            raise NotFoundError(f"Signal {signal_id} not found")
+
+        if signal.status != SignalStatus.DRAFT:
+            raise ValueError(
+                f"Only DRAFT signals may be purged by this operation (status={signal.status.value})"
+            )
+
+        snapshot = {
+            "title": signal.title,
+            "event_id": str(signal.event_id),
+            "created_at": signal.created_at.isoformat() if signal.created_at else None,
+            "category_count": len(signal.categories),
+            "evidence_count": len(signal.evidence),
+            "had_visual": signal.visual is not None,
+            "visual_status": signal.visual.status.value if signal.visual else None,
+        }
+
+        self._audit_signal_action(
+            signal_id=signal_id,
+            action="SIGNAL_DRAFT_PURGED",
+            reviewer_id=actor_id,
+            changes=snapshot,
+        )
+        self.signal_repo.delete(signal_id)
+        self.session.flush()
+        logger.info(f"Purged DRAFT signal {signal_id} ({snapshot['title']})")
+        return snapshot
+
+    def _check_not_stale(self, signal: Signal, expected_updated_at: Optional[datetime]) -> None:
+        """Lightweight optimistic-lock check reusing the Signal's own
+        already-existing updated_at column (no new column/migration) - a
+        caller editing a signal they last read some time ago supplies the
+        updated_at they saw, and a concurrent edit since then is rejected
+        rather than silently overwritten. Skipped entirely when the caller
+        doesn't supply one (e.g. an older/other caller), matching the
+        existing optional-reason pattern on reject_signal."""
+        if expected_updated_at is None or signal.updated_at is None:
+            return
+        # Compare at second resolution - the value round-trips through an
+        # HTTP JSON body (ISO 8601), which doesn't always preserve
+        # microsecond precision the DB driver returns.
+        if int(expected_updated_at.timestamp()) != int(signal.updated_at.timestamp()):
+            raise StaleWriteError(
+                "This signal was changed by someone else since you loaded it. Reload to see the latest version."
+            )
+
+    def edit_signal_content(
+        self,
+        signal_id: UUID,
+        actor_id: Optional[UUID],
+        updates: dict,
+        expected_updated_at: Optional[datetime] = None,
+    ) -> Signal:
+        """
+        Human-in-the-loop content correction - the AI-generated content is
+        a first draft, reviewers/admins may correct it before publication.
+        Backend-enforced: callers reach this only via a route already
+        gated by require_reviewer, so role is never trusted from the
+        request body; this method additionally enforces the lifecycle
+        gate itself so a direct service call can never bypass it either.
+
+        Only DRAFT/IN_REVIEW signals are editable (see
+        _EDITABLE_SIGNAL_STATUSES) - an already-APPROVED/PUBLISHED signal's
+        content stays immutable here, exactly as it already is everywhere
+        else in this service.
+
+        `updates` may contain any subset of _EDITABLE_CONTENT_FIELDS; a
+        field not present is left untouched, and a field present but equal
+        to its current value is a no-op (not audited). Writes exactly one
+        SIGNAL_EDITED audit entry with a {field: {from, to}} diff of only
+        the fields that actually changed - same shape UserService already
+        uses for its own field-change audits (see _audit_user_action).
+
+        Raises:
+            NotFoundError: signal_id doesn't exist.
+            ValueError: signal is not DRAFT/IN_REVIEW.
+            StaleWriteError: expected_updated_at no longer matches (409).
+        """
+        signal = self.signal_repo.get_by_id(signal_id)
+        if not signal:
+            raise NotFoundError(f"Signal {signal_id} not found")
+
+        if signal.status not in _EDITABLE_SIGNAL_STATUSES:
+            raise ValueError(
+                f"Only DRAFT or IN_REVIEW signals may be edited (status={signal.status.value})"
+            )
+
+        self._check_not_stale(signal, expected_updated_at)
+
+        changes: dict = {}
+        applied: dict = {}
+        for field in _EDITABLE_CONTENT_FIELDS:
+            if field not in updates:
+                continue
+            new_value = updates[field]
+            old_value = getattr(signal, field)
+            if new_value != old_value:
+                changes[field] = {"from": old_value, "to": new_value}
+                applied[field] = new_value
+
+        if not changes:
+            return signal
+
+        updated = self.signal_repo.update(signal_id, **applied)
+        self._audit_signal_action(
+            signal_id=signal_id,
+            action="SIGNAL_EDITED",
+            reviewer_id=actor_id,
+            changes=changes,
+        )
+        self.session.flush()
+        logger.info(f"Edited signal {signal_id} fields={list(changes.keys())}")
+        return updated
+
+    def edit_signal_category(
+        self,
+        signal_id: UUID,
+        actor_id: Optional[UUID],
+        category: SecurityCategoryType,
+        subcategory: Optional[str],
+        expected_updated_at: Optional[datetime] = None,
+    ) -> Signal:
+        """
+        Reviewer/admin correction of a signal's AI-assigned category. Same
+        lifecycle gate and optimistic lock as edit_signal_content (see its
+        docstring). `category`/`subcategory` are already validated against
+        the controlled taxonomy by the route's Pydantic request schema
+        (SecurityCategoryType/AISecuritySubcategory enums, same validation
+        the AI-generation path already gets) before this method ever sees
+        them.
+
+        A human correcting a category is itself meaningful provenance -
+        the row's assigned_by flips to AssignmentMethod.HUMAN (an enum
+        value that already existed for exactly this, just never used by
+        any caller before now), distinct from "AI" or "heuristic".
+
+        Raises:
+            NotFoundError: signal_id doesn't exist.
+            ValueError: signal is not DRAFT/IN_REVIEW, or has no existing
+                category row to correct.
+            StaleWriteError: expected_updated_at no longer matches (409).
+        """
+        signal = self.signal_repo.get_by_id(signal_id)
+        if not signal:
+            raise NotFoundError(f"Signal {signal_id} not found")
+
+        if signal.status not in _EDITABLE_SIGNAL_STATUSES:
+            raise ValueError(
+                f"Only DRAFT or IN_REVIEW signals may be edited (status={signal.status.value})"
+            )
+
+        self._check_not_stale(signal, expected_updated_at)
+
+        existing = signal.categories[0] if signal.categories else None
+        if existing is None:
+            raise ValueError("Signal has no category to edit")
+
+        old_category = existing.category.value if hasattr(existing.category, "value") else existing.category
+        new_category = category.value if hasattr(category, "value") else category
+        changes: dict = {}
+        if old_category != new_category:
+            changes["category"] = {"from": old_category, "to": new_category}
+        if existing.subcategory != subcategory:
+            changes["subcategory"] = {"from": existing.subcategory, "to": subcategory}
+
+        if not changes:
+            return signal
+
+        self.category_repo.update(
+            existing.id, category=category, subcategory=subcategory, assigned_by=AssignmentMethod.HUMAN,
+        )
+        self._audit_signal_action(
+            signal_id=signal_id,
+            action="SIGNAL_CATEGORY_EDITED",
+            reviewer_id=actor_id,
+            changes=changes,
+        )
+        self.session.flush()
+        logger.info(f"Edited category for signal {signal_id}: {changes}")
+        return self.signal_repo.get_by_id(signal_id)
+
+    def delete_visual(self, signal_id: UUID, actor_id: Optional[UUID] = None) -> dict:
+        """
+        Remove a signal's generated visual - reviewer/admin moderation
+        action for a visual that's unnecessary or inappropriate. Never
+        deletes the Signal itself, never touches evidence/categories/
+        events, and never regenerates (a future regenerate feature, if
+        ever added, is explicitly a separate action).
+
+        Deliberately NOT gated by lifecycle status (unlike content/category
+        editing above) - an inappropriate image can need removing at any
+        stage, including after publication, and removing an image from a
+        PUBLISHED signal is strictly safer than leaving it up; the Signal's
+        own text content remains completely unaffected either way.
+
+        Best-effort file cleanup: if the stored row has a real generated
+        file under settings.media_root, it's removed from disk too; a
+        failure to remove the file is logged and never blocks removing the
+        DB row (mirrors the non-fatal-I/O style already used throughout
+        the visual-generation pipeline).
+
+        Raises:
+            NotFoundError: signal_id doesn't exist.
+            ValueError: the signal currently has no visual to delete.
+        """
+        signal = self.signal_repo.get_by_id(signal_id)
+        if not signal:
+            raise NotFoundError(f"Signal {signal_id} not found")
+
+        visual = signal.visual
+        if visual is None:
+            raise ValueError("Signal has no visual to delete")
+
+        snapshot = {
+            "title": signal.title,
+            "visual_status": visual.status.value if hasattr(visual.status, "value") else visual.status,
+            "url": visual.url,
+        }
+
+        if visual.url:
+            try:
+                from app.config import get_settings
+                settings = get_settings()
+                file_path = Path(settings.media_root) / "signals" / Path(visual.url).name
+                file_path.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"visual_file_delete_failed signal_id={signal_id} error={e}")
+
+        self.session.delete(visual)
+        self._audit_signal_action(
+            signal_id=signal_id,
+            action="SIGNAL_VISUAL_DELETED",
+            reviewer_id=actor_id,
+            changes=snapshot,
+        )
+        self.session.flush()
+        logger.info(f"Deleted visual for signal {signal_id} ({snapshot['title']})")
+        return snapshot

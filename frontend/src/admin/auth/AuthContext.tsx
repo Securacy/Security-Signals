@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getAdminConfig } from "../config";
+import { clearSessionGreeting, pickAndPersistGreeting } from "../greeting";
 import type { AuthSession, AuthUser } from "./types";
 
 /**
@@ -101,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // the session still works for the current page lifetime, it just
       // won't survive a refresh.
     }
+    // This is the real "new login" moment (as opposed to the mount-time
+    // readStoredSession() restore on a page refresh/navigation within the
+    // same session) - the dashboard greeting is picked fresh exactly here.
+    pickAndPersistGreeting();
   }, []);
 
   const sessionRef = useRef<AuthSession | null>(null);
@@ -115,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
+    clearSessionGreeting();
     // Only a deliberate sign-out is reported here: an expired token can't
     // authenticate the logout call anyway, and a password change already
     // has its own PASSWORD_CHANGED audit entry from the backend.

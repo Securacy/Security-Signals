@@ -24,7 +24,7 @@ export async function signInWithPassword(username: string, password: string): Pr
       body: JSON.stringify({ username, password }),
     });
   } catch {
-    throw new ApiError("Network error while reaching Security Signals API", null);
+    throw new ApiError("Network error while reaching Cyberscope API", null);
   }
 
   if (!response.ok) {
@@ -45,7 +45,7 @@ export async function signInWithPassword(username: string, password: string): Pr
   try {
     data = await response.json();
   } catch {
-    throw new ApiError("Security Signals API returned an invalid response", response.status);
+    throw new ApiError("Cyberscope API returned an invalid response", response.status);
   }
 
   return parseLoginResponse(data, response.status);

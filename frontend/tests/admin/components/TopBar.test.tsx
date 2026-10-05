@@ -70,4 +70,28 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Change password" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Change your password");
   });
+
+  it("shows the current page's title instead of standalone branding - branding now lives in the sidebar", () => {
+    window.history.pushState(null, "", "/admin/users");
+    renderTopBar();
+
+    expect(screen.getByText("Users")).toBeInTheDocument();
+    expect(screen.queryByText("Security Signals Admin")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the Cyberscope brand name, not the old Security Signals name, on an unmatched route", () => {
+    window.history.pushState(null, "", "/admin/does-not-exist");
+    renderTopBar();
+
+    expect(screen.getByText("Cyberscope")).toBeInTheDocument();
+    expect(screen.queryByText("Security Signals")).not.toBeInTheDocument();
+  });
+
+  it("on the dashboard shows no separate 'Dashboard' label, but keeps the account menu", () => {
+    window.history.pushState(null, "", "/admin/");
+    renderTopBar();
+
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /tester/i })).toBeInTheDocument();
+  });
 });

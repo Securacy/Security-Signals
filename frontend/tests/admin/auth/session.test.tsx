@@ -78,4 +78,43 @@ describe("sign-out and session expiry", () => {
     await screen.findByText("Your session has expired. Please sign in again.");
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/auth/logout"))).toBe(false);
   });
+
+  it("restoring an existing session (page refresh/navigation) keeps the same greeting rather than picking a new one", async () => {
+    seedReviewer();
+    window.sessionStorage.setItem("ss-admin-greeting", JSON.stringify({ text: "Hiya! Let's get to work." }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) => {
+        if (String(input).includes("/auth/providers")) {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ local: true, entra: true }) });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      }),
+    );
+    render(<AdminApp />);
+
+    expect(await screen.findByText("Hiya! Let's get to work.")).toBeInTheDocument();
+    expect(JSON.parse(window.sessionStorage.getItem("ss-admin-greeting")!).text).toBe("Hiya! Let's get to work.");
+  });
+
+  it("sign-out clears the stored greeting so the next login is guaranteed a fresh one", async () => {
+    seedReviewer();
+    window.sessionStorage.setItem("ss-admin-greeting", JSON.stringify({ text: "Hiya! Let's get to work." }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) => {
+        if (String(input).includes("/auth/providers")) {
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ local: true, entra: true }) });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      }),
+    );
+    render(<AdminApp />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /rita/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    await waitFor(() => expect(window.sessionStorage.getItem("ss-admin-session")).toBeNull());
+    expect(window.sessionStorage.getItem("ss-admin-greeting")).toBeNull();
+  });
 });

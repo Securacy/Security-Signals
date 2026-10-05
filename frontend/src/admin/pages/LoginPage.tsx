@@ -105,7 +105,9 @@ export function LoginPage() {
   return (
     <div className="adm-login">
       <div className="adm-login__card">
-        <h1 className="adm-login__title">Security Signals</h1>
+        <h1 className="adm-login__title">
+          Cyber<span className="adm-sidebar__brand-accent">scope</span>
+        </h1>
         <p className="adm-login__subtitle">Sign in to the admin console</p>
 
         {notice && (

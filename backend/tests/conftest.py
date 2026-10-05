@@ -49,6 +49,22 @@ def _disable_real_visual_generation(monkeypatch):
     separately, as a few sparing manual calls, not on every test run."""
     monkeypatch.setenv("VISUAL_GENERATION_ENABLED", "false")
 
+
+@pytest.fixture(autouse=True)
+def _disable_real_reviewer_notifications(monkeypatch):
+    """Same reasoning as _disable_real_visual_generation, for the Resend-
+    based reviewer-notification email: the real backend/.env now contains
+    a real RESEND_API_KEY, so without this, any test that calls
+    SignalService.submit_for_review directly and commits (there are many,
+    across many files, none of them about notifications) would attempt a
+    real call to Resend. Force the dispatch flag off AND blank the API key
+    as a second, independent layer (mirrors _isolate_entra_configuration
+    blanking ENTRA_CLIENT_SECRET in addition to ENTRA_ENABLED). Tests that
+    exercise this feature re-enable it locally, the same way existing
+    visual-generation tests re-enable VISUAL_GENERATION_ENABLED."""
+    monkeypatch.setenv("REVIEWER_NOTIFICATION_ENABLED", "false")
+    monkeypatch.setenv("RESEND_API_KEY", "")
+
 # Opt-in verification mode: when TEST_DB_SCHEMA_SOURCE=alembic, the `db`
 # fixture below builds its schema by running real Alembic migrations
 # instead of Base.metadata.create_all, so the full suite can be run against

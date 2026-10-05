@@ -30,7 +30,7 @@ export function parseLoginResponse(data: unknown, status: number): AuthSession {
     typeof body.user.username !== "string" ||
     !ROLES.includes(body.user.role as Role)
   ) {
-    throw new ApiError("Security Signals API returned an invalid response", status);
+    throw new ApiError("Cyberscope API returned an invalid response", status);
   }
   return {
     token: body.access_token,

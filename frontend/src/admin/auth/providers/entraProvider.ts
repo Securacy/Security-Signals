@@ -25,10 +25,10 @@ export async function fetchAuthProviders(): Promise<AuthProviders> {
   try {
     response = await fetch(`${apiBaseUrl}/api/v1/auth/providers`, { headers: { Accept: "application/json" } });
   } catch {
-    throw new ApiError("Network error while reaching Security Signals API", null);
+    throw new ApiError("Network error while reaching Cyberscope API", null);
   }
   if (!response.ok) {
-    throw new ApiError(`Security Signals API returned ${response.status}`, response.status);
+    throw new ApiError(`Cyberscope API returned ${response.status}`, response.status);
   }
   const body = (await response.json().catch(() => null)) as Partial<AuthProviders> | null;
   return { local: body?.local === true, entra: body?.entra === true };
@@ -57,7 +57,7 @@ export async function completeEntraSignIn(): Promise<AuthSession> {
       headers: { Accept: "application/json", "X-Requested-With": "ss-admin" },
     });
   } catch {
-    throw new ApiError("Network error while reaching Security Signals API", null);
+    throw new ApiError("Network error while reaching Cyberscope API", null);
   }
   if (response.status === 401 || response.status === 403) {
     throw new ApiError("Your Microsoft sign-in could not be completed. Please try again.", response.status);
@@ -69,7 +69,7 @@ export async function completeEntraSignIn(): Promise<AuthSession> {
   try {
     data = await response.json();
   } catch {
-    throw new ApiError("Security Signals API returned an invalid response", response.status);
+    throw new ApiError("Cyberscope API returned an invalid response", response.status);
   }
   return parseLoginResponse(data, response.status);
 }

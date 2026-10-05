@@ -61,13 +61,17 @@ export function resolveConfigFromScriptElement(scriptEl) {
 }
 
 /** The iframe box dimensions/placement for the current viewport. Mobile
- * gets a full-screen sheet; desktop gets a fixed-size anchored panel. */
-export function getDrawerLayout(position, viewportWidth) {
+ * gets a full-screen sheet; desktop gets a fixed-size anchored panel that
+ * widens while the widget is showing a signal's full reading view
+ * (`expanded`). */
+export function getDrawerLayout(position, viewportWidth, expanded = false) {
   if (viewportWidth <= MOBILE_BREAKPOINT_PX) {
     return { top: "0", left: "0", right: "0", bottom: "0", width: "100%", height: "100%", borderRadius: "0" };
   }
 
-  const base = { width: "400px", height: "min(640px, 80vh)", borderRadius: "16px" };
+  const base = expanded
+    ? { width: "min(720px, calc(100vw - 48px))", height: "min(760px, 88vh)", borderRadius: "16px" }
+    : { width: "400px", height: "min(640px, 80vh)", borderRadius: "16px" };
   switch (position) {
     case "bottom-left":
       return { ...base, bottom: "88px", left: "24px" };
@@ -109,7 +113,12 @@ export function isValidMessageFromWidget(event, expectedOrigin, expectedSource) 
   if (!data || typeof data !== "object" || data.source !== MESSAGE_SOURCE) {
     return false;
   }
-  return data.type === "security-signals:ready" || data.type === "security-signals:close";
+  return (
+    data.type === "security-signals:ready" ||
+    data.type === "security-signals:close" ||
+    data.type === "security-signals:expand" ||
+    data.type === "security-signals:collapse"
+  );
 }
 
 const BUTTON_SVG =
@@ -136,7 +145,7 @@ export function createWidget(config, doc = document, win = window) {
 
   const button = doc.createElement("button");
   button.type = "button";
-  button.setAttribute("aria-label", "Open Security Signals");
+  button.setAttribute("aria-label", "Open Cyberscope");
   button.setAttribute("aria-expanded", "false");
   button.innerHTML = BUTTON_SVG;
   Object.assign(button.style, {
@@ -168,9 +177,10 @@ export function createWidget(config, doc = document, win = window) {
 
   let iframeEl = null;
   let isOpen = false;
+  let isExpanded = false;
 
   function applyLayout() {
-    const layout = getDrawerLayout(config.position, win.innerWidth);
+    const layout = getDrawerLayout(config.position, win.innerWidth, isExpanded);
     Object.assign(wrapper.style, layout);
   }
 
@@ -182,7 +192,7 @@ export function createWidget(config, doc = document, win = window) {
 
     iframeEl = doc.createElement("iframe");
     iframeEl.src = url.toString();
-    iframeEl.title = "Security Signals";
+    iframeEl.title = "Cyberscope";
     Object.assign(iframeEl.style, { width: "100%", height: "100%", border: "none" });
     wrapper.appendChild(iframeEl);
   }
@@ -199,6 +209,7 @@ export function createWidget(config, doc = document, win = window) {
     wrapper.style.display = "none";
     button.setAttribute("aria-expanded", "false");
     isOpen = false;
+    isExpanded = false;
   }
 
   function toggle() {
@@ -223,7 +234,13 @@ export function createWidget(config, doc = document, win = window) {
   function onMessage(event) {
     const expectedSource = iframeEl ? iframeEl.contentWindow : null;
     if (!isValidMessageFromWidget(event, widgetOrigin, expectedSource)) return;
-    if (event.data.type === "security-signals:close") close();
+    const type = event.data.type;
+    if (type === "security-signals:close") {
+      close();
+    } else if (type === "security-signals:expand" || type === "security-signals:collapse") {
+      isExpanded = type === "security-signals:expand";
+      if (isOpen) applyLayout();
+    }
   }
 
   button.addEventListener("click", toggle);

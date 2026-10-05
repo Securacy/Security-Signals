@@ -72,17 +72,17 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     if (err instanceof DOMException && err.name === "AbortError") {
       throw err;
     }
-    throw new ApiError("Network error while reaching Security Signals API", null);
+    throw new ApiError("Network error while reaching Cyberscope API", null);
   }
 
   if (!response.ok) {
-    throw new ApiError(`Security Signals API returned ${response.status}`, response.status);
+    throw new ApiError(`Cyberscope API returned ${response.status}`, response.status);
   }
 
   try {
     return (await response.json()) as T;
   } catch (err) {
-    throw new ApiError("Security Signals API returned an invalid response", response.status);
+    throw new ApiError("Cyberscope API returned an invalid response", response.status);
   }
 }
 

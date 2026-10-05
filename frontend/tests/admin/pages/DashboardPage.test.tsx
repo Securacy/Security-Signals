@@ -86,7 +86,7 @@ describe("DashboardPage", () => {
     window.sessionStorage.clear();
   });
 
-  it("greets the authenticated user by username with a time-appropriate greeting", async () => {
+  it("shows a friendly session greeting as the heading, and the username in the subtitle beneath it", async () => {
     seedSession("admin");
     mockFetchByPath({
       "/signals/draft": [],
@@ -100,7 +100,36 @@ describe("DashboardPage", () => {
     renderDashboard();
 
     const heading = await screen.findByRole("heading", { level: 1 });
-    expect(heading.textContent).toMatch(/(Good morning|Good afternoon|Good evening), tester/);
+    expect(heading.textContent!.length).toBeGreaterThan(0);
+    expect(screen.getByText(new RegExp(`tester`))).toBeInTheDocument();
+  });
+
+  it("keeps the same greeting across a re-render rather than picking a new one every time", async () => {
+    seedSession("admin");
+    mockFetchByPath({
+      "/signals/draft": [],
+      "/signals/approved": [],
+      "/audit": [],
+      "/admin/category-health": [],
+      "/signals/published": [],
+      "/users": [],
+    });
+
+    const { rerender } = renderDashboard();
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const first = heading.textContent;
+
+    rerender(
+      <AuthProvider>
+        <RouterProvider>
+          <WaitForSession>
+            <DashboardPage />
+          </WaitForSession>
+        </RouterProvider>
+      </AuthProvider>,
+    );
+
+    expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe(first);
   });
 
   it("ADMIN sees the needs-attention strip plus all admin-only dashboard sections", async () => {
