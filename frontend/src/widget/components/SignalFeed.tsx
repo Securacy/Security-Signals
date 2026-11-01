@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SignalSummary, SortOption } from "../types";
+import type { SignalSummary } from "../types";
 import { fetchPublishedSignals, searchSignals } from "../api";
 import { FilterBar } from "./FilterBar";
-import { SignalCard } from "./SignalCard";
+import { SignalDeck } from "./SignalDeck";
 import { FeedSkeleton } from "./LoadingSkeleton";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
@@ -10,6 +10,9 @@ import { publicCategoryLabel } from "../publicTaxonomy";
 
 const PAGE_SIZE = 10;
 const SEARCH_RESULT_LIMIT = 30;
+/** The feed is always newest-first: the date-grouped layout (Today / This
+ * week / Earlier) only makes sense in that order. */
+const FEED_SORT = "recent";
 
 type FeedStatus = "loading" | "loading-more" | "error" | "ready";
 
@@ -22,11 +25,13 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
   const [category, setCategory] = useState<string | null>(null);
   const [subcategory, setSubcategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortOption>("recent");
   const [signals, setSignals] = useState<SignalSummary[]>([]);
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [status, setStatus] = useState<FeedStatus>("loading");
+  // Bumped whenever a fresh result set replaces the list (new filter or
+  // query), so the deck remounts: back to card 1, with its fade-in.
+  const [generation, setGeneration] = useState(0);
   const [aiUnderstood, setAiUnderstood] = useState(false);
   const [understoodPublicCategories, setUnderstoodPublicCategories] = useState<string[]>([]);
 
@@ -65,12 +70,13 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
             query: search.trim(),
             category,
             subcategory,
-            sort,
+            sort: FEED_SORT,
             limit: SEARCH_RESULT_LIMIT,
             signal: controller.signal,
           });
           if (isStale()) return;
           setSignals(result.signals);
+          setGeneration((g) => g + 1);
           setAiUnderstood(result.aiUnderstood);
           setUnderstoodPublicCategories(result.understoodPublicCategories);
           setHasMore(false);
@@ -81,11 +87,12 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
             limit: PAGE_SIZE,
             category,
             subcategory,
-            sort,
+            sort: FEED_SORT,
             signal: controller.signal,
           });
           if (isStale()) return;
           setSignals((prev) => (replace ? result.signals : [...prev, ...result.signals]));
+          if (replace) setGeneration((g) => g + 1);
           setHasMore(result.hasMore);
           setSkip(nextSkip);
           setAiUnderstood(false);
@@ -98,7 +105,7 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
         setStatus("error");
       }
     },
-    [apiBaseUrl, category, subcategory, search, sort, isSearchMode],
+    [apiBaseUrl, category, subcategory, search, isSearchMode],
   );
 
   useEffect(() => {
@@ -116,25 +123,33 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
     setCategory(null);
     setSubcategory(null);
     setSearch("");
-    setSort("recent");
   };
 
+  // A reload while results are already on screen (filter change, new
+  // search query) keeps them visible, dimmed, under a pull-to-refresh
+  // style spinner; the skeleton is only for a feed with nothing to show.
+  const isRefreshing = status === "loading" && signals.length > 0;
+  const showList = signals.length > 0 && (status === "ready" || status === "loading-more" || isRefreshing);
   return (
     <div className="ss-feed">
       <FilterBar
         category={category}
         subcategory={subcategory}
         search={search}
-        sort={sort}
         isSearching={isSearchMode && status === "loading"}
         onCategoryChange={setCategory}
         onSubcategoryChange={setSubcategory}
         onSearchChange={setSearch}
-        onSortChange={setSort}
         onClear={clearFilters}
       />
 
-      {status === "loading" && <FeedSkeleton />}
+      {isRefreshing && (
+        <div className="ss-refresh" role="status" aria-label="Refreshing security signals">
+          <span className="ss-refresh__spinner" aria-hidden="true" />
+        </div>
+      )}
+
+      {status === "loading" && signals.length === 0 && <FeedSkeleton />}
 
       {status === "error" && <ErrorState onRetry={() => load(0, true)} />}
 
@@ -149,32 +164,20 @@ export function SignalFeed({ apiBaseUrl, onOpenSignal }: SignalFeedProps) {
         </p>
       )}
 
-      {status !== "loading" && status !== "error" && signals.length === 0 && (
-        <EmptyState filtered={isFiltered} isSearchMode={isSearchMode} />
-      )}
+      {status === "ready" && signals.length === 0 && <EmptyState filtered={isFiltered} isSearchMode={isSearchMode} />}
 
-      {status !== "loading" && status !== "error" && signals.length > 0 && (
-        <div className="ss-feed__list">
-          {signals.map((signal) => (
-            <SignalCard key={signal.id} signal={signal} onOpen={onOpenSignal} />
-          ))}
+      {showList && (
+        <div className={`ss-feed__list${isRefreshing ? " ss-feed__list--refreshing" : ""}`}>
+          <SignalDeck
+            key={generation}
+            apiBaseUrl={apiBaseUrl}
+            signals={signals}
+            onOpenSignal={onOpenSignal}
+            hasMore={!isSearchMode && hasMore}
+            loadingMore={status === "loading-more"}
+            onLoadMore={() => load(skip + PAGE_SIZE, false)}
+          />
         </div>
-      )}
-
-      {status === "loading-more" && (
-        <div className="ss-loading-more" role="status">
-          Loading more…
-        </div>
-      )}
-
-      {status === "ready" && !isSearchMode && hasMore && (
-        <button
-          type="button"
-          className="ss-button ss-button--load-more"
-          onClick={() => load(skip + PAGE_SIZE, false)}
-        >
-          Load more
-        </button>
       )}
     </div>
   );

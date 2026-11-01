@@ -50,9 +50,10 @@ describe("SignalDetail", () => {
 
     await waitFor(() => expect(screen.getByText("Critical Apache RCE disclosed")).toBeInTheDocument());
     expect(screen.getByText("What happened text.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Would this affect you?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What happened" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Why it matters" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Design principle" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "High-level mitigations" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What to do" })).toBeInTheDocument();
     expect(screen.getByText("Why it matters text.")).toBeInTheDocument();
     expect(screen.getByText("Defense in depth")).toBeInTheDocument();
     expect(screen.getByText("Patch immediately.")).toBeInTheDocument();
@@ -205,9 +206,10 @@ describe("SignalDetail", () => {
         visual_url: null,
       });
       await waitFor(() => screen.getByText("Critical Apache RCE disclosed"));
-      expect(screen.queryByRole("heading", { name: "Would this affect you?" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "What happened" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Why it matters" })).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Design principle" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("heading", { name: "High-level mitigations" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "What to do" })).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Sources" })).not.toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Critical Apache RCE disclosed" })).toBeInTheDocument();
     });

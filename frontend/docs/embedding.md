@@ -14,12 +14,35 @@ production URLs.
 
 A small floating launcher button that opens a drawer/panel showing recently
 published security signals (title, why it matters, recommended action,
-sources). Everything - the launcher, the drawer, and all its content - runs
-inside a sandboxed `<iframe>`. Nothing in this widget touches your page's
-React version, router, CSS, state management, or authentication. It cannot
-see your page's DOM, and your page's styles cannot leak into it, and vice
-versa - that's a structural guarantee of the iframe boundary, not a
-convention either side has to maintain.
+sources). The drawer and all its content run inside a sandboxed `<iframe>`.
+Nothing in it touches your page's React version, router, CSS, state
+management, or authentication. It cannot see your page's DOM, and your
+page's styles cannot leak into it, and vice versa - that's a structural
+guarantee of the iframe boundary, not a convention either side has to
+maintain.
+
+The **launcher button itself** is the one piece that lives in your page's
+DOM (it has to, to float over your content). Its full footprint on your
+page is:
+
+- One fixed-position `<div class="ssl-root">` (launcher, unread badge,
+  first-visit tooltip) and one hidden `<div>` that holds the iframe.
+- One `<style id="ss-launcher-styles">` with `ssl-`-prefixed rules only
+  (hover/focus states, the radar-pulse animation, reduced-motion
+  overrides). If your CSP blocks it, the launcher still renders and works
+  correctly - those rules are enhancements only. To allow it under a
+  nonce-based `style-src`, put your nonce on the loader `<script>` tag;
+  it's forwarded to the stylesheet.
+- One `GET {data-api-base}/api/v1/signals/published?limit=50&sort=recent`,
+  made ~1.5s after load, to count signals newer than the visitor's last
+  open (the unread badge). It's the same public endpoint the widget reads,
+  sent without cookies (`credentials: "omit"`). It needs your page's origin
+  in the backend's CORS list (section 5) and your API in your page's CSP
+  `connect-src`; if either blocks it, the badge simply doesn't appear.
+- Two `localStorage` keys on your origin: `ss-widget-last-visit` (a
+  timestamp, set when the drawer is opened) and `ss-widget-tooltip-seen`
+  (`"1"` once the first-visit tooltip has shown). Nothing else is stored,
+  and storage failures are ignored.
 
 ## 2. Script integration
 

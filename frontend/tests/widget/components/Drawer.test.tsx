@@ -23,7 +23,7 @@ describe("Drawer", () => {
   it("renders the header and feed", () => {
     render(<Drawer apiBaseUrl="https://api.example.com" parentOrigin="https://host.example" />);
 
-    expect(screen.getByRole("dialog", { name: "Cyberscope" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Threatline" })).toBeInTheDocument();
   });
 
   it("sends a 'ready' message to the parent on mount, targeted at the known parent origin", () => {

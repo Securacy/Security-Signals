@@ -32,9 +32,9 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the Cyberscope drawer", () => {
+  it("renders the Threatline drawer", () => {
     render(<App />);
-    expect(screen.getByRole("dialog", { name: "Cyberscope" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Threatline" })).toBeInTheDocument();
   });
 
   it("fetches and displays published signals end to end", async () => {

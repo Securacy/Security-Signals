@@ -86,7 +86,7 @@ describe("SignalFeed", () => {
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
     await waitFor(() => expect(api.fetchPublishedSignals).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "cloud_identity_security" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cloud & Identity Security" }));
 
     await waitFor(() => expect(api.fetchPublishedSignals).toHaveBeenCalledTimes(2));
     const lastCallArgs = vi.mocked(api.fetchPublishedSignals).mock.calls[1];
@@ -97,7 +97,7 @@ describe("SignalFeed", () => {
     vi.mocked(api.fetchPublishedSignals).mockResolvedValue({ signals: [], hasMore: false });
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "ransomware" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ransomware" }));
 
     await waitFor(() => expect(screen.getByText("No signals in this category yet")).toBeInTheDocument());
   });
@@ -128,7 +128,7 @@ describe("SignalFeed", () => {
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
     await waitFor(() => expect(api.fetchPublishedSignals).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByLabelText("Search"), {
+    fireEvent.change(screen.getByLabelText("Search signals"), {
       target: { value: "compromised CI/CD pipelines" },
     });
 
@@ -148,7 +148,7 @@ describe("SignalFeed", () => {
     });
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "recent ransomware attacks" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "recent ransomware attacks" } });
 
     await waitFor(() => expect(screen.getByText(/Understood as:/)).toBeInTheDocument());
   });
@@ -162,7 +162,7 @@ describe("SignalFeed", () => {
     });
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "AI agent abuse" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "AI agent abuse" } });
 
     await waitFor(() => expect(screen.getByText(/2 matching signals/)).toBeInTheDocument());
   });
@@ -176,7 +176,7 @@ describe("SignalFeed", () => {
     });
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "recent data privacy breaches" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "recent data privacy breaches" } });
 
     await waitFor(() => expect(screen.getByText("No matching signals found")).toBeInTheDocument());
     expect(screen.queryByText("No news found.")).toBeNull();
@@ -192,7 +192,7 @@ describe("SignalFeed", () => {
     );
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "oauth" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "oauth" } });
 
     await waitFor(() => expect(document.querySelector(".ss-search-field__spinner")).not.toBeNull());
 
@@ -205,7 +205,7 @@ describe("SignalFeed", () => {
     vi.mocked(api.searchSignals).mockRejectedValue(new ApiError("search unavailable", 503));
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "anything" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "anything" } });
 
     await waitFor(() => expect(screen.getByText("Couldn't load security signals")).toBeInTheDocument());
   });
@@ -222,10 +222,10 @@ describe("SignalFeed", () => {
     });
 
     render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "something" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "something" } });
     await waitFor(() => expect(screen.getByText("Search Result Signal")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "" } });
 
     await waitFor(() => expect(screen.getByText("Published Feed Signal")).toBeInTheDocument());
   });
@@ -252,7 +252,7 @@ describe("SignalFeed", () => {
       render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
 
       // Type immediately, before the mount's published fetch has resolved.
-      fireEvent.change(screen.getByLabelText("Search"), {
+      fireEvent.change(screen.getByLabelText("Search signals"), {
         target: { value: "OAuth2 token exchange privilege escalation" },
       });
 
@@ -291,10 +291,10 @@ describe("SignalFeed", () => {
 
       render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
 
-      fireEvent.change(screen.getByLabelText("Search"), { target: { value: "AI security" } });
+      fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "AI security" } });
       await waitFor(() => expect(api.searchSignals).toHaveBeenCalledTimes(1));
 
-      fireEvent.change(screen.getByLabelText("Search"), { target: { value: "AI agent security" } });
+      fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "AI agent security" } });
       await waitFor(() => expect(api.searchSignals).toHaveBeenCalledTimes(2));
 
       await waitFor(() => expect(screen.getByText("AI Agent Security Result")).toBeInTheDocument());
@@ -329,10 +329,10 @@ describe("SignalFeed", () => {
 
       render(<SignalFeed apiBaseUrl="https://api.example.com" onOpenSignal={vi.fn()} />);
 
-      fireEvent.change(screen.getByLabelText("Search"), { target: { value: "first query" } });
+      fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "first query" } });
       await waitFor(() => expect(api.searchSignals).toHaveBeenCalledTimes(1));
 
-      fireEvent.change(screen.getByLabelText("Search"), { target: { value: "second query" } });
+      fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "second query" } });
       await waitFor(() => expect(api.searchSignals).toHaveBeenCalledTimes(2));
       await waitFor(() => expect(screen.getByText("Newer Search Result")).toBeInTheDocument());
 

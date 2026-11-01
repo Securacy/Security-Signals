@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { sendToParent } from "../messaging";
+import { prefersReducedMotion } from "../motion";
+import { Duotone, X } from "../icons";
+import { ReaderLaunchContext, type ReaderLaunch } from "../readerLaunch";
+import type { SignalSummary } from "../types";
+import { WATERMARK_BACKGROUND_STYLE } from "../watermark";
 import { SignalFeed } from "./SignalFeed";
 import { SignalDetail } from "./SignalDetail";
+
+/** Display name only - code, files, message types and storage keys keep
+ * their existing identifiers. */
+export const WIDGET_DISPLAY_NAME = "Threatline";
 
 interface DrawerProps {
   apiBaseUrl: string;
@@ -17,17 +26,24 @@ const FOCUSABLE_SELECTOR =
  * --closing). Reduced-motion users skip the wait entirely. */
 const READER_EXIT_MS = 160;
 
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 export function Drawer({ apiBaseUrl, parentOrigin }: DrawerProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [readerState, setReaderState] = useState<ReaderState>("closed");
   const containerRef = useRef<HTMLDivElement>(null);
   const readerRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const pendingLaunchRef = useRef<ReaderLaunch | null>(null);
+  const [launch, setLaunch] = useState<ReaderLaunch | null>(null);
   const titleId = useId();
+
+  const launchContext = useMemo(
+    () => ({
+      prepare(signal: SignalSummary, originEl: Element | null) {
+        pendingLaunchRef.current = { signal, originRect: originEl ? originEl.getBoundingClientRect() : null };
+      },
+    }),
+    [],
+  );
 
   // Tell the loader we've mounted and it's safe to reveal the iframe.
   useEffect(() => {
@@ -41,6 +57,9 @@ export function Drawer({ apiBaseUrl, parentOrigin }: DrawerProps) {
   const openSignal = useCallback(
     (id: string) => {
       openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const pending = pendingLaunchRef.current;
+      pendingLaunchRef.current = null;
+      setLaunch(pending && pending.signal.id === id ? pending : null);
       setSelectedId(id);
       setReaderState("open");
       sendToParent("security-signals:expand", parentOrigin);
@@ -57,6 +76,7 @@ export function Drawer({ apiBaseUrl, parentOrigin }: DrawerProps) {
   // size, and returns focus to the card that opened the reader.
   const finishCloseReader = useCallback(() => {
     setSelectedId(null);
+    setLaunch(null);
     setReaderState("closed");
     sendToParent("security-signals:collapse", parentOrigin);
     const opener = openerRef.current;
@@ -132,17 +152,21 @@ export function Drawer({ apiBaseUrl, parentOrigin }: DrawerProps) {
       ref={containerRef}
       role="dialog"
       aria-modal="true"
-      aria-label="Cyberscope"
+      aria-label={WIDGET_DISPLAY_NAME}
       tabIndex={-1}
     >
+      {/* One fixed wallpaper node behind everything (see watermark.ts). */}
+      <div className="ss-watermark" style={WATERMARK_BACKGROUND_STYLE} aria-hidden="true" />
       <header className="ss-drawer__header">
-        <h1 className="ss-drawer__title">Cyberscope</h1>
+        <h1 className="ss-drawer__title">{WIDGET_DISPLAY_NAME}</h1>
         <button type="button" className="ss-close-button" onClick={handleClose} aria-label="Close">
-          <span aria-hidden="true">&times;</span>
+          <Duotone icon={X} className="ss-close-button__icon" lineOnly />
         </button>
       </header>
-      <div className="ss-drawer__body" aria-hidden={readerVisible ? "true" : undefined}>
-        <SignalFeed apiBaseUrl={apiBaseUrl} onOpenSignal={openSignal} />
+      <div className="ss-drawer__body" data-scroll-root aria-hidden={readerVisible ? "true" : undefined}>
+        <ReaderLaunchContext.Provider value={launchContext}>
+          <SignalFeed apiBaseUrl={apiBaseUrl} onOpenSignal={openSignal} />
+        </ReaderLaunchContext.Provider>
       </div>
 
       {readerVisible && selectedId && (
@@ -162,14 +186,17 @@ export function Drawer({ apiBaseUrl, parentOrigin }: DrawerProps) {
             aria-labelledby={titleId}
             tabIndex={-1}
           >
-            <div className="ss-reader__toolbar">
-              <span className="ss-reader__eyebrow">Signal</span>
-              <button type="button" className="ss-close-button" onClick={requestCloseReader} aria-label="Close signal">
-                <span aria-hidden="true">&times;</span>
-              </button>
-            </div>
+            <button type="button" className="ss-reader__close" onClick={requestCloseReader} aria-label="Close signal">
+              <Duotone icon={X} className="ss-reader__close-icon" lineOnly />
+            </button>
             <div className="ss-reader__scroll">
-              <SignalDetail apiBaseUrl={apiBaseUrl} signalId={selectedId} titleId={titleId} />
+              <SignalDetail
+                apiBaseUrl={apiBaseUrl}
+                signalId={selectedId}
+                titleId={titleId}
+                preview={launch?.signal ?? null}
+                originRect={launch?.originRect ?? null}
+              />
             </div>
           </div>
         </div>
